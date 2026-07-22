@@ -1,45 +1,128 @@
-import { NextResponse } from 'next/server';
-import { requireFarcasterUser } from '@/lib/auth/require-farcaster-user';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import {
+  NextResponse,
+} from 'next/server';
 
-function clean(value: unknown, max: number): string | null {
-  return typeof value === 'string' && value.trim()
-    ? value.trim().slice(0, max)
+import {
+  requireAppSession,
+} from '@/lib/auth/require-app-session';
+import {
+  supabaseAdmin,
+} from '@/lib/supabase/admin';
+
+function clean(
+  value: unknown,
+  maxLength: number,
+): string | null {
+  if (
+    typeof value !== 'string'
+  ) {
+    return null;
+  }
+
+  const cleaned =
+    value.trim();
+
+  return cleaned
+    ? cleaned.slice(
+        0,
+        maxLength,
+      )
     : null;
 }
 
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+) {
   try {
-    const auth = await requireFarcasterUser(request);
-    const body = await request.json().catch(() => ({}));
-    const db = supabaseAdmin();
+    const session =
+      await requireAppSession();
 
-    /*
-      The FID comes from the verified Farcaster Quick Auth token.
+    const body =
+      await request
+        .json()
+        .catch(
+          () => ({}),
+        );
 
-      Username, display name and PFP come from Farcaster Mini App context.
-      These profile values are only used for display and are never used
-      to authorize the user.
-    */
-    const { data, error } = await db.rpc(
-      'toby_hop_get_or_create_user',
-      {
-        p_fid: auth.fid,
-        p_username: clean(body.username, 64),
-        p_display_name: clean(body.displayName, 100),
-        p_pfp_url: clean(body.pfpUrl, 1000),
-      },
-    );
+    const updates = {
+      username:
+        clean(
+          body.username,
+          64,
+        ),
+
+      display_name:
+        clean(
+          body.displayName,
+          100,
+        ),
+
+      pfp_url:
+        clean(
+          body.pfpUrl,
+          1_000,
+        ),
+
+      updated_at:
+        new Date()
+          .toISOString(),
+    };
+
+    const db =
+      supabaseAdmin();
+
+    let query =
+      db
+        .from(
+          'toby_hop_users',
+        )
+        .update(updates);
+
+    if (session.address) {
+      query =
+        query.eq(
+          'wallet_address',
+          session.address
+            .toLowerCase(),
+        );
+    } else if (session.fid) {
+      query =
+        query.eq(
+          'fid',
+          session.fid,
+        );
+    } else {
+      throw new Error(
+        'No session identity is available.',
+      );
+    }
+
+    const {
+      data,
+      error,
+    } =
+      await query
+        .select('*')
+        .maybeSingle();
 
     if (error) {
       throw error;
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(
+      data,
+    );
   } catch (cause) {
-    return new NextResponse(
-      cause instanceof Error ? cause.message : 'Unauthorized',
-      { status: 401 },
+    return NextResponse.json(
+      {
+        error:
+          cause instanceof Error
+            ? cause.message
+            : 'Unable to update profile.',
+      },
+      {
+        status: 401,
+      },
     );
   }
 }
