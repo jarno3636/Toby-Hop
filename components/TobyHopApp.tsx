@@ -10,6 +10,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 
@@ -21,6 +22,10 @@ import {
   compactNumber,
   formatAtomic,
 } from '@/lib/format';
+import {
+  getTodaysPond,
+  type PondParticle,
+} from '@/lib/todays-pond';
 import type {
   HopReceipt,
   HopUser,
@@ -37,6 +42,12 @@ type HopState =
   | 'approving'
   | 'swapping'
   | 'verifying';
+
+type MiniAppUser = {
+  username?: string;
+  displayName?: string;
+  pfpUrl?: string;
+};
 
 type QuoteResponse = {
   allowanceTarget: `0x${string}`;
@@ -68,7 +79,7 @@ const fallbackPfp =
       />
       <text
         x="48"
-        y="61"
+        y="62"
         text-anchor="middle"
         font-size="46"
       >
@@ -77,12 +88,39 @@ const fallbackPfp =
     </svg>
   `);
 
-function getErrorMessage(cause: unknown): string {
+const emptyUser: HopUser = {
+  fid: 0,
+  username: null,
+  display_name: 'Hopper',
+  pfp_url: null,
+  current_title: 'First Hopper',
+  total_hops: 0,
+  current_streak: 0,
+  longest_streak: 0,
+  big_pond_energy: 0,
+  total_toby_atomic: '0',
+  total_usdc_atomic: '0',
+  first_hop_at: null,
+  last_hop_at: null,
+  today_hopped: false,
+  rank: null,
+};
+
+function getErrorMessage(
+  cause: unknown,
+): string {
   if (!(cause instanceof Error)) {
     return 'The pond could not complete this hop.';
   }
 
   const message = cause.message.toLowerCase();
+
+  if (
+    message.includes('undefined is not an object') ||
+    message.includes('cannot read properties of undefined')
+  ) {
+    return 'The host did not provide a Farcaster profile. Reopen Toby Hop inside Farcaster.';
+  }
 
   if (
     message.includes('user rejected') ||
@@ -96,24 +134,91 @@ function getErrorMessage(cause: unknown): string {
     message.includes('insufficient funds') ||
     message.includes('insufficient balance')
   ) {
-    return 'You need at least $0.01 USDC on Base plus a small amount of ETH for gas.';
+    return 'You need at least one cent of USDC on Base and a small amount of ETH for gas.';
   }
 
   if (
     message.includes('already complete') ||
     message.includes('already hopped')
   ) {
-    return 'You already completed today’s official hop.';
+    return 'You already completed todays official hop.';
+  }
+
+  if (
+    message.includes('authorization') ||
+    message.includes('quick auth') ||
+    message.includes('unauthorized')
+  ) {
+    return 'Farcaster authentication is unavailable in this browser session.';
   }
 
   if (
     message.includes('connector') ||
     message.includes('provider')
   ) {
-    return 'The Farcaster wallet could not connect. Close and reopen Toby Hop, then try again.';
+    return 'The Base wallet could not connect. Close and reopen Toby Hop and try again.';
   }
 
   return cause.message;
+}
+
+async function getSafeMiniAppUser(): Promise<
+  MiniAppUser | null
+> {
+  try {
+    /*
+      Promise.resolve supports SDK versions where context is
+      either a promise-like value or a resolved object.
+    */
+    const context = await Promise.resolve(
+      sdk.context,
+    );
+
+    if (
+      !context ||
+      typeof context !== 'object'
+    ) {
+      return null;
+    }
+
+    const possibleUser = (
+      context as {
+        user?: MiniAppUser;
+      }
+    ).user;
+
+    if (
+      !possibleUser ||
+      typeof possibleUser !== 'object'
+    ) {
+      return null;
+    }
+
+    return possibleUser;
+  } catch {
+    return null;
+  }
+}
+
+function particleSymbol(
+  type: PondParticle,
+): string {
+  switch (type) {
+    case 'drop':
+      return '';
+
+    case 'firefly':
+      return '';
+
+    case 'petal':
+      return '🌸';
+
+    case 'snow':
+      return '•';
+
+    case 'leaf':
+      return '🍂';
+  }
 }
 
 export function TobyHopApp() {
@@ -121,7 +226,10 @@ export function TobyHopApp() {
     useState<View>('hop');
 
   const [user, setUser] =
-    useState<HopUser | null>(null);
+    useState<HopUser>(emptyUser);
+
+  const [hasFarcasterUser, setHasFarcasterUser] =
+    useState(false);
 
   const [loading, setLoading] =
     useState(true);
@@ -141,6 +249,39 @@ export function TobyHopApp() {
   const [leaders, setLeaders] =
     useState<LeaderRow[]>([]);
 
+  const todaysPond = useMemo(
+    () => getTodaysPond(),
+    [],
+  );
+
+  const particles = useMemo(() => {
+    if (!todaysPond.particle) {
+      return [];
+    }
+
+    return Array.from(
+      {
+        length:
+          todaysPond.particleCount,
+      },
+      (_, index) => ({
+        id: `${todaysPond.particle}-${index}`,
+        type: todaysPond.particle!,
+        left:
+          4 +
+          ((index * 37 + 11) % 92),
+        delay:
+          ((index * 23) % 31) / 10,
+        duration:
+          3.4 +
+          ((index * 17) % 25) / 10,
+        scale:
+          0.65 +
+          ((index * 13) % 9) / 10,
+      }),
+    );
+  }, [todaysPond]);
+
   const {
     address,
     isConnected,
@@ -159,11 +300,12 @@ export function TobyHopApp() {
     sendTransactionAsync,
   } = useSendTransaction();
 
-  const busy = hopState !== 'idle';
+  const busy =
+    hopState !== 'idle';
 
   const displayName =
-    user?.display_name ||
-    user?.username ||
+    user.display_name ||
+    user.username ||
     'Hopper';
 
   const authenticatedFetch = useCallback(
@@ -171,37 +313,61 @@ export function TobyHopApp() {
       input: RequestInfo | URL,
       init?: RequestInit,
     ) => {
-      /*
-        quickAuth.fetch automatically obtains a Quick Auth token
-        and adds it as an Authorization Bearer token.
-      */
-      return sdk.quickAuth.fetch(input, init);
+      return sdk.quickAuth.fetch(
+        input,
+        init,
+      );
     },
     [],
   );
 
   const loadUser = useCallback(async () => {
-    const context = await sdk.context;
+    const miniAppUser =
+      await getSafeMiniAppUser();
 
-    const response = await authenticatedFetch(
-      '/api/me',
-      {
-        method: 'POST',
+    if (!miniAppUser) {
+      /*
+        Do not crash when opened in Safari or a Base
+        session that does not expose Farcaster context.
+      */
+      setHasFarcasterUser(false);
+      setUser(emptyUser);
+      return;
+    }
 
-        headers: {
-          'content-type': 'application/json',
+    setHasFarcasterUser(true);
+
+    const response =
+      await authenticatedFetch(
+        '/api/me',
+        {
+          method: 'POST',
+
+          headers: {
+            'content-type':
+              'application/json',
+          },
+
+          body: JSON.stringify({
+            username:
+              miniAppUser.username ??
+              null,
+
+            displayName:
+              miniAppUser.displayName ??
+              null,
+
+            pfpUrl:
+              miniAppUser.pfpUrl ??
+              null,
+          }),
         },
-
-        body: JSON.stringify({
-          username: context.user.username,
-          displayName: context.user.displayName,
-          pfpUrl: context.user.pfpUrl,
-        }),
-      },
-    );
+      );
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(
+        await response.text(),
+      );
     }
 
     const profile =
@@ -217,30 +383,22 @@ export function TobyHopApp() {
       try {
         setError('');
 
-        await loadUser();
-
-        if (!active) {
-          return;
-        }
-
         /*
-          Tell Farcaster/Base App that the Mini App is ready.
-          This removes the host splash screen.
-        */
-        await sdk.actions.ready();
-      } catch (cause) {
-        if (active) {
-          setError(getErrorMessage(cause));
-        }
-
-        /*
-          Do not leave the Mini App frozen on its launch splash
-          when profile loading fails.
+          Tell the host that the page has rendered before
+          waiting on profile network requests.
         */
         try {
           await sdk.actions.ready();
         } catch {
-          // Host may not support the action outside a Mini App.
+          // Normal browser sessions may not support this.
+        }
+
+        await loadUser();
+      } catch (cause) {
+        if (active) {
+          setError(
+            getErrorMessage(cause),
+          );
         }
       } finally {
         if (active) {
@@ -257,7 +415,10 @@ export function TobyHopApp() {
   }, [loadUser]);
 
   useEffect(() => {
-    if (view !== 'leaders') {
+    if (
+      view !== 'leaders' ||
+      !hasFarcasterUser
+    ) {
       return;
     }
 
@@ -286,7 +447,9 @@ export function TobyHopApp() {
         }
       } catch (cause) {
         if (active) {
-          setError(getErrorMessage(cause));
+          setError(
+            getErrorMessage(cause),
+          );
         }
       }
     }
@@ -298,6 +461,7 @@ export function TobyHopApp() {
     };
   }, [
     authenticatedFetch,
+    hasFarcasterUser,
     leaderKind,
     view,
   ]);
@@ -312,36 +476,38 @@ export function TobyHopApp() {
           'haptics.impactOccurred',
         )
       ) {
-        await sdk.haptics.impactOccurred(
-          'medium',
-        );
+        await sdk.haptics
+          .impactOccurred('medium');
       }
     } catch {
-      // Haptics are an enhancement, not a requirement.
+      // Haptics are optional.
     }
   }
 
   async function getConnectedWallet(): Promise<
     `0x${string}`
   > {
-    if (isConnected && address) {
+    if (
+      isConnected &&
+      address
+    ) {
       return address;
     }
 
     setHopState('connecting');
 
-    const miniAppConnector =
+    const connector =
       connectors[0];
 
-    if (!miniAppConnector) {
+    if (!connector) {
       throw new Error(
-        'Farcaster wallet connector is unavailable.',
+        'Wallet connector is unavailable.',
       );
     }
 
     const connection =
       await connectAsync({
-        connector: miniAppConnector,
+        connector,
       });
 
     const wallet =
@@ -357,11 +523,22 @@ export function TobyHopApp() {
   }
 
   async function performHop() {
-    if (busy || user?.today_hopped) {
+    if (
+      busy ||
+      user.today_hopped
+    ) {
       return;
     }
 
     setError('');
+
+    if (!hasFarcasterUser) {
+      setError(
+        'Open Toby Hop inside Farcaster to make an authenticated hop. Base wallet authentication will be added separately.',
+      );
+
+      return;
+    }
 
     await provideTapFeedback();
 
@@ -385,10 +562,6 @@ export function TobyHopApp() {
       const quote =
         (await quoteResponse.json()) as QuoteResponse;
 
-      /*
-        Approve exactly one cent of USDC.
-        This is intentionally not an unlimited approval.
-      */
       setHopState('approving');
 
       await writeContractAsync({
@@ -401,9 +574,6 @@ export function TobyHopApp() {
         ],
       });
 
-      /*
-        Submit the provider-generated swap transaction.
-      */
       setHopState('swapping');
 
       const transactionHash =
@@ -412,7 +582,8 @@ export function TobyHopApp() {
           data: quote.transaction.data,
 
           value: BigInt(
-            quote.transaction.value || '0',
+            quote.transaction.value ??
+              '0',
           ),
 
           gas: quote.transaction.gas
@@ -422,10 +593,6 @@ export function TobyHopApp() {
             : undefined,
         });
 
-      /*
-        The server independently reads the confirmed Base receipt.
-        The client does not decide how much TOBY was received.
-      */
       setHopState('verifying');
 
       const verificationResponse =
@@ -440,13 +607,18 @@ export function TobyHopApp() {
             },
 
             body: JSON.stringify({
-              txHash: transactionHash,
-              walletAddress: wallet,
+              txHash:
+                transactionHash,
+
+              walletAddress:
+                wallet,
             }),
           },
         );
 
-      if (!verificationResponse.ok) {
+      if (
+        !verificationResponse.ok
+      ) {
         throw new Error(
           await verificationResponse.text(),
         );
@@ -457,75 +629,88 @@ export function TobyHopApp() {
 
       setReceipt(completedHop);
 
-      setUser((previous) => {
-        if (!previous) {
-          return previous;
-        }
+      setUser((previous) => ({
+        ...previous,
 
-        return {
-          ...previous,
+        today_hopped: true,
 
-          today_hopped: true,
+        total_hops:
+          completedHop.totalHops,
 
-          total_hops:
-            completedHop.totalHops,
+        current_streak:
+          completedHop.streak,
 
-          current_streak:
-            completedHop.streak,
-
-          longest_streak: Math.max(
+        longest_streak:
+          Math.max(
             previous.longest_streak,
             completedHop.streak,
           ),
 
-          big_pond_energy:
-            previous.big_pond_energy + 1,
+        big_pond_energy:
+          previous.big_pond_energy +
+          1,
 
-          current_title:
-            completedHop.title,
+        current_title:
+          completedHop.title,
 
-          total_toby_atomic: (
-            BigInt(
-              previous.total_toby_atomic,
-            ) +
-            BigInt(
-              completedHop.tobyAtomic,
-            )
-          ).toString(),
-        };
-      });
+        total_toby_atomic: (
+          BigInt(
+            previous.total_toby_atomic,
+          ) +
+          BigInt(
+            completedHop.tobyAtomic,
+          )
+        ).toString(),
+      }));
 
       try {
-        await sdk.haptics.notificationOccurred(
-          'success',
-        );
+        await sdk.haptics
+          .notificationOccurred(
+            'success',
+          );
       } catch {
-        // Optional enhancement.
+        // Optional.
       }
 
-      /*
-        Prompt the user to add Toby Hop after successful use.
-        Some hosts may not currently support this action.
-      */
       try {
         const context =
-          await sdk.context;
+          await Promise.resolve(
+            sdk.context,
+          );
 
-        if (!context.client.added) {
-          await sdk.actions.addMiniApp();
+        if (
+          context &&
+          typeof context === 'object' &&
+          'client' in context
+        ) {
+          const client = (
+            context as {
+              client?: {
+                added?: boolean;
+              };
+            }
+          ).client;
+
+          if (!client?.added) {
+            await sdk.actions
+              .addMiniApp();
+          }
         }
       } catch {
-        // The completed hop remains valid.
+        // The hop remains valid.
       }
     } catch (cause) {
-      setError(getErrorMessage(cause));
+      setError(
+        getErrorMessage(cause),
+      );
 
       try {
-        await sdk.haptics.notificationOccurred(
-          'error',
-        );
+        await sdk.haptics
+          .notificationOccurred(
+            'error',
+          );
       } catch {
-        // Optional enhancement.
+        // Optional.
       }
     } finally {
       setHopState('idle');
@@ -548,30 +733,32 @@ export function TobyHopApp() {
         ],
       });
     } catch (cause) {
-      setError(getErrorMessage(cause));
+      setError(
+        getErrorMessage(cause),
+      );
     }
   }
 
   function getHopStatus(): string {
-    if (user?.today_hopped) {
-      return 'Today’s hop is complete';
+    if (user.today_hopped) {
+      return 'Todays hop is complete';
     }
 
     switch (hopState) {
       case 'connecting':
-        return 'Connecting your pond wallet…';
+        return 'Connecting your wallet';
 
       case 'quoting':
-        return 'Finding today’s route…';
+        return 'Finding todays route';
 
       case 'approving':
-        return 'Approve one cent of USDC…';
+        return 'Approve one cent of USDC';
 
       case 'swapping':
-        return 'Toby is hopping…';
+        return 'Toby is hopping';
 
       case 'verifying':
-        return 'Counting your hop…';
+        return 'Counting your hop';
 
       default:
         return 'Tap Toby to hop';
@@ -582,14 +769,20 @@ export function TobyHopApp() {
     return (
       <main className="shell">
         <div className="empty">
-          Opening the pond…
+          Opening the pond
         </div>
       </main>
     );
   }
 
   return (
-    <main className="shell">
+    <main
+      className={`shell pond-theme-${todaysPond.id} ${
+        todaysPond.goldenToby
+          ? 'golden-toby-day'
+          : ''
+      }`}
+    >
       <header className="topbar">
         <div>
           <div className="brand">
@@ -597,17 +790,18 @@ export function TobyHopApp() {
           </div>
 
           <div className="tagline">
-            One hop. Every day.
+            One hop every day
           </div>
         </div>
 
-        {isConnected && address && (
-          <div className="wallet-pill">
-            {address.slice(0, 5)}
-            …
-            {address.slice(-4)}
-          </div>
-        )}
+        {isConnected &&
+          address && (
+            <div className="wallet-pill">
+              {address.slice(0, 5)}
+              {'…'}
+              {address.slice(-4)}
+            </div>
+          )}
       </header>
 
       {view !== 'leaders' && (
@@ -615,26 +809,25 @@ export function TobyHopApp() {
           <img
             className="pfp"
             src={
-              user?.pfp_url ||
+              user.pfp_url ||
               fallbackPfp
             }
             alt={`${displayName} profile`}
           />
 
-          <div>
+          <div className="profile-identity">
             <div className="profile-name">
               {displayName}
             </div>
 
             <div className="profile-title">
-              {user?.current_title ||
-                'First Hopper'}
+              {user.current_title}
             </div>
           </div>
 
           <div className="streak-pill">
             <div className="streak-number">
-              {user?.current_streak ?? 0}
+              {user.current_streak}
             </div>
 
             <div className="streak-label">
@@ -646,23 +839,85 @@ export function TobyHopApp() {
 
       {view === 'hop' && (
         <>
+          <section className="todays-pond-card">
+            <span className="today-label">
+              TODAYS POND
+            </span>
+
+            <strong>
+              {todaysPond.emoji}{' '}
+              {todaysPond.name}
+            </strong>
+
+            <span>
+              {todaysPond.description}
+            </span>
+          </section>
+
           <section className="pond-card">
             <div className="hop-copy">
-              <h1>Ready to hop?</h1>
+              <h1>
+                Ready to hop
+              </h1>
 
               <p>
                 Exchange one small drop
-                for $TOBY.
+                for TOBY
               </p>
             </div>
 
-            <div className="moon" />
+            <div
+              className={`moon moon-${todaysPond.moonPhase}`}
+            />
 
-            <div className="pond-stars">
-              <span />
-              <span />
-              <span />
-              <span />
+            {todaysPond.id ===
+              'rainbow' && (
+              <div className="pond-rainbow" />
+            )}
+
+            {todaysPond.id ===
+              'shooting-star' && (
+              <div className="shooting-star" />
+            )}
+
+            {todaysPond.id ===
+              'lotus' && (
+              <>
+                <div className="lotus-bloom lotus-bloom-one">
+                  🪷
+                </div>
+
+                <div className="lotus-bloom lotus-bloom-two">
+                  🪷
+                </div>
+              </>
+            )}
+
+            <div
+              className="pond-particles"
+              aria-hidden="true"
+            >
+              {particles.map(
+                (particle) => (
+                  <span
+                    key={particle.id}
+                    className={`pond-particle particle-${particle.type}`}
+                    style={{
+                      left: `${particle.left}%`,
+                      animationDelay:
+                        `${particle.delay}s`,
+                      animationDuration:
+                        `${particle.duration}s`,
+                      transform:
+                        `scale(${particle.scale})`,
+                    }}
+                  >
+                    {particleSymbol(
+                      particle.type,
+                    )}
+                  </span>
+                ),
+              )}
             </div>
 
             <div className="reed r1" />
@@ -670,7 +925,10 @@ export function TobyHopApp() {
             <div className="reed r3" />
 
             <div className="water" />
-            <div className="ripple" />
+
+            <div className="ripple ripple-one" />
+            <div className="ripple ripple-two" />
+            <div className="ripple ripple-three" />
 
             <div className="lily l1" />
             <div className="lily l2" />
@@ -680,20 +938,20 @@ export function TobyHopApp() {
               className="frog-button"
               disabled={
                 busy ||
-                Boolean(
-                  user?.today_hopped,
-                )
+                user.today_hopped
               }
               onClick={performHop}
               aria-label={
-                user?.today_hopped
-                  ? 'Today’s hop is complete'
-                  : 'Tap Toby to exchange one cent of USDC for TOBY'
+                user.today_hopped
+                  ? 'Todays hop is complete'
+                  : 'Tap Toby to hop'
               }
             >
               <div
                 className={`frog ${
-                  busy ? 'hopping' : ''
+                  busy
+                    ? 'hopping'
+                    : ''
                 }`}
               >
                 <div className="frog-body" />
@@ -705,10 +963,16 @@ export function TobyHopApp() {
 
                 <div className="cheek c1" />
                 <div className="cheek c2" />
+
+                {todaysPond.goldenToby && (
+                  <div className="golden-crown">
+                    👑
+                  </div>
+                )}
               </div>
 
               {!busy &&
-                !user?.today_hopped && (
+                !user.today_hopped && (
                   <div className="tap-ring" />
                 )}
             </button>
@@ -719,9 +983,9 @@ export function TobyHopApp() {
               </strong>
 
               <span>
-                {user?.today_hopped
-                  ? '+1 Big Pond Energy collected'
-                  : '$0.01 USDC → $TOBY'}
+                {user.today_hopped
+                  ? 'One Big Pond Energy collected'
+                  : 'One cent USDC to TOBY'}
               </span>
             </div>
           </section>
@@ -730,8 +994,7 @@ export function TobyHopApp() {
             <div className="stat">
               <strong>
                 {compactNumber(
-                  user?.big_pond_energy ??
-                    0,
+                  user.big_pond_energy,
                 )}
               </strong>
 
@@ -743,7 +1006,7 @@ export function TobyHopApp() {
             <div className="stat">
               <strong>
                 {compactNumber(
-                  user?.total_hops ?? 0,
+                  user.total_hops,
                 )}
               </strong>
 
@@ -753,12 +1016,11 @@ export function TobyHopApp() {
             <div className="stat">
               <strong>
                 {formatAtomic(
-                  user?.total_toby_atomic ??
-                    '0',
+                  user.total_toby_atomic,
                 )}
               </strong>
 
-              <span>$TOBY</span>
+              <span>TOBY</span>
             </div>
           </section>
         </>
@@ -770,91 +1032,104 @@ export function TobyHopApp() {
             Pond leaders
           </h1>
 
-          <div className="tabs">
-            {(
-              [
-                'streak',
-                'hops',
-                'toby',
-              ] as const
-            ).map((kind) => (
-              <button
-                key={kind}
-                type="button"
-                className={
-                  leaderKind === kind
-                    ? 'active'
-                    : ''
-                }
-                onClick={() =>
-                  setLeaderKind(kind)
-                }
-              >
-                {kind === 'toby'
-                  ? '$TOBY'
-                  : kind
-                      .charAt(0)
-                      .toUpperCase() +
-                    kind.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          {leaders.map((row) => (
-            <div
-              className="leader-row"
-              key={row.fid}
-            >
-              <div className="rank">
-                #{row.rank}
-              </div>
-
-              <img
-                src={
-                  row.pfp_url ||
-                  fallbackPfp
-                }
-                alt=""
-              />
-
-              <div>
-                <div className="leader-name">
-                  {row.display_name ||
-                    row.username ||
-                    `FID ${row.fid}`}
-                </div>
-
-                <div className="leader-title">
-                  {row.current_title}
-                </div>
-              </div>
-
-              <div className="leader-value">
-                {leaderKind === 'streak'
-                  ? row.current_streak
-                  : leaderKind ===
-                      'hops'
-                    ? row.total_hops
-                    : formatAtomic(
-                        row.total_toby_atomic,
-                      )}
-
-                <div className="leader-sub">
-                  {leaderKind === 'streak'
-                    ? 'days'
-                    : leaderKind ===
-                        'hops'
-                      ? 'hops'
-                      : '$TOBY'}
-                </div>
-              </div>
+          {!hasFarcasterUser && (
+            <div className="empty-state-card">
+              Open Toby Hop inside Farcaster
+              to view verified pond leaders
             </div>
-          ))}
+          )}
 
-          {!leaders.length && (
-            <div className="empty">
-              No verified hops yet.
-            </div>
+          {hasFarcasterUser && (
+            <>
+              <div className="tabs">
+                {(
+                  [
+                    'streak',
+                    'hops',
+                    'toby',
+                  ] as const
+                ).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className={
+                      leaderKind === kind
+                        ? 'active'
+                        : ''
+                    }
+                    onClick={() =>
+                      setLeaderKind(kind)
+                    }
+                  >
+                    {kind === 'toby'
+                      ? 'TOBY'
+                      : kind
+                          .charAt(0)
+                          .toUpperCase() +
+                        kind.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {leaders.map((row) => (
+                <div
+                  className="leader-row"
+                  key={row.fid}
+                >
+                  <div className="rank">
+                    #{row.rank}
+                  </div>
+
+                  <img
+                    src={
+                      row.pfp_url ||
+                      fallbackPfp
+                    }
+                    alt=""
+                  />
+
+                  <div>
+                    <div className="leader-name">
+                      {row.display_name ||
+                        row.username ||
+                        `FID ${row.fid}`}
+                    </div>
+
+                    <div className="leader-title">
+                      {row.current_title}
+                    </div>
+                  </div>
+
+                  <div className="leader-value">
+                    {leaderKind ===
+                    'streak'
+                      ? row.current_streak
+                      : leaderKind ===
+                          'hops'
+                        ? row.total_hops
+                        : formatAtomic(
+                            row.total_toby_atomic,
+                          )}
+
+                    <div className="leader-sub">
+                      {leaderKind ===
+                      'streak'
+                        ? 'days'
+                        : leaderKind ===
+                            'hops'
+                          ? 'hops'
+                          : 'TOBY'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {!leaders.length && (
+                <div className="empty">
+                  No verified hops yet
+                </div>
+              )}
+            </>
           )}
         </section>
       )}
@@ -868,23 +1143,25 @@ export function TobyHopApp() {
           <div className="stat-grid profile-stats">
             <div className="stat">
               <strong>
-                {user?.current_streak ??
-                  0}
+                {user.current_streak}
               </strong>
-              <span>Current streak</span>
+              <span>
+                Current streak
+              </span>
             </div>
 
             <div className="stat">
               <strong>
-                {user?.longest_streak ??
-                  0}
+                {user.longest_streak}
               </strong>
-              <span>Best streak</span>
+              <span>
+                Best streak
+              </span>
             </div>
 
             <div className="stat">
               <strong>
-                {user?.rank
+                {user.rank
                   ? `#${user.rank}`
                   : '—'}
               </strong>
@@ -893,15 +1170,14 @@ export function TobyHopApp() {
 
             <div className="stat">
               <strong>
-                {user?.total_hops ?? 0}
+                {user.total_hops}
               </strong>
               <span>Total hops</span>
             </div>
 
             <div className="stat">
               <strong>
-                {user?.big_pond_energy ??
-                  0}
+                {user.big_pond_energy}
               </strong>
               <span>
                 Big Pond Energy
@@ -911,11 +1187,10 @@ export function TobyHopApp() {
             <div className="stat">
               <strong>
                 {formatAtomic(
-                  user?.total_toby_atomic ??
-                    '0',
+                  user.total_toby_atomic,
                 )}
               </strong>
-              <span>$TOBY</span>
+              <span>TOBY</span>
             </div>
           </div>
         </section>
@@ -930,7 +1205,9 @@ export function TobyHopApp() {
 
           <button
             type="button"
-            onClick={() => setError('')}
+            onClick={() =>
+              setError('')
+            }
             aria-label="Dismiss error"
           >
             ×
@@ -946,7 +1223,9 @@ export function TobyHopApp() {
               ? 'active'
               : ''
           }
-          onClick={() => setView('hop')}
+          onClick={() =>
+            setView('hop')
+          }
         >
           Hop
         </button>
@@ -972,7 +1251,9 @@ export function TobyHopApp() {
               ? 'active'
               : ''
           }
-          onClick={() => setView('me')}
+          onClick={() =>
+            setView('me')
+          }
         >
           Me
         </button>
@@ -986,14 +1267,16 @@ export function TobyHopApp() {
             </div>
 
             <div className="energy">
-              +1 BIG POND ENERGY
+              ONE BIG POND ENERGY
             </div>
 
             <div className="success-summary">
               {receipt.tobyDisplay}{' '}
-              $TOBY
+              TOBY
+
               <span>·</span>
-              {receipt.streak}-day
+
+              {receipt.streak} day
               streak
             </div>
 
