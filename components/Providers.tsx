@@ -4,6 +4,11 @@ import {
   QueryClient,
   QueryClientProvider,
 } from '@tanstack/react-query';
+import { farcasterMiniApp } from '@farcaster/miniapp-wagmi-connector';
+import {
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   WagmiProvider,
   createConfig,
@@ -11,29 +16,35 @@ import {
 } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { injected } from 'wagmi/connectors';
-import { farcasterMiniApp } from '@farcaster/miniapp-wagmi-connector';
-import {
-  useState,
-  type ReactNode,
-} from 'react';
 
-const config = createConfig({
-  chains: [base],
+export const wagmiConfig =
+  createConfig({
+    chains: [base],
 
-  connectors: [
-    farcasterMiniApp(),
-    injected(),
-  ],
+    connectors: [
+      /*
+        Keep this first. Inside Farcaster, Toby Hop will
+        prefer the host-provided EIP-1193 wallet.
+      */
+      farcasterMiniApp(),
 
-  transports: {
-    [base.id]: http(
-      process.env.NEXT_PUBLIC_BASE_RPC_URL ||
-        'https://mainnet.base.org',
-    ),
-  },
+      /*
+        Browser fallback for users opening Toby Hop
+        outside a Farcaster client.
+      */
+      injected(),
+    ],
 
-  ssr: true,
-});
+    transports: {
+      [base.id]: http(
+        process.env
+          .NEXT_PUBLIC_BASE_RPC_URL ||
+          'https://mainnet.base.org',
+      ),
+    },
+
+    ssr: true,
+  });
 
 type ProvidersProps = {
   children: ReactNode;
@@ -42,12 +53,30 @@ type ProvidersProps = {
 export function Providers({
   children,
 }: ProvidersProps) {
-  const [queryClient] = useState(
-    () => new QueryClient(),
-  );
+  const [queryClient] =
+    useState(
+      () =>
+        new QueryClient({
+          defaultOptions: {
+            queries: {
+              staleTime: 15_000,
+              retry: 1,
+              refetchOnWindowFocus:
+                false,
+            },
+
+            mutations: {
+              retry: 0,
+            },
+          },
+        }),
+    );
 
   return (
-    <WagmiProvider config={config}>
+    <WagmiProvider
+      config={wagmiConfig}
+      reconnectOnMount
+    >
       <QueryClientProvider
         client={queryClient}
       >
