@@ -3043,13 +3043,14 @@ export function TobyHopApp() {
                   );
 
                 const rowKey =
-                  row.id ||
-                  row.wallet_address ||
-                  (
-                    row.fid > 0
-                      ? `fid-${row.fid}`
-                      : `${row.rank}-${rowName}`
-                  );
+  row.id ||
+  row.wallet_address ||
+  (
+    typeof row.fid === 'number' &&
+    row.fid > 0
+      ? `fid-${row.fid}`
+      : `${row.rank}-${rowName}`
+  );
 
                 const sameWallet =
                   addressesMatch(
@@ -3058,12 +3059,12 @@ export function TobyHopApp() {
                   );
 
                 const sameFid =
-                  Boolean(
-                    currentUserFid &&
-                    row.fid > 0 &&
-                    row.fid ===
-                      currentUserFid,
-                  );
+  Boolean(
+    currentUserFid &&
+    typeof row.fid === 'number' &&
+    row.fid > 0 &&
+    row.fid === currentUserFid,
+  );
 
                 const isCurrentUser =
                   sameWallet ||
