@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server';
+import {
+  NextResponse,
+} from 'next/server';
 import {
   createPublicClient,
   getAddress,
@@ -15,11 +17,14 @@ import {
   consumeSiweNonce,
   createWalletSession,
 } from '@/lib/auth/wallet-session';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import {
+  supabaseAdmin,
+} from '@/lib/supabase/admin';
 
 const publicClient =
   createPublicClient({
     chain: base,
+
     transport: http(
       process.env.BASE_RPC_URL ||
         'https://mainnet.base.org',
@@ -30,6 +35,15 @@ type VerifyBody = {
   message?: string;
   signature?: Hex;
 };
+
+function getConfiguredAppUrl():
+URL {
+  return new URL(
+    process.env
+      .NEXT_PUBLIC_APP_URL ||
+      'https://tobyhop.vercel.app',
+  );
+}
 
 export async function POST(
   request: Request,
@@ -60,7 +74,9 @@ export async function POST(
 
     if (
       !parsed.address ||
-      !isAddress(parsed.address)
+      !isAddress(
+        parsed.address,
+      )
     ) {
       throw new Error(
         'Invalid wallet address.',
@@ -72,7 +88,8 @@ export async function POST(
 
     if (
       !expectedNonce ||
-      parsed.nonce !== expectedNonce
+      parsed.nonce !==
+        expectedNonce
     ) {
       throw new Error(
         'The sign-in nonce is invalid or expired.',
@@ -80,11 +97,7 @@ export async function POST(
     }
 
     const appUrl =
-      new URL(
-        process.env
-          .NEXT_PUBLIC_APP_URL ||
-          'https://tobyhop.vercel.app',
-      );
+      getConfiguredAppUrl();
 
     if (
       parsed.domain !==
@@ -105,33 +118,11 @@ export async function POST(
     }
 
     if (
-      parsed.chainId !== 8453
+      parsed.chainId !==
+      base.id
     ) {
       throw new Error(
         'Toby Hop requires Base mainnet.',
-      );
-    }
-
-    const verified =
-      await publicClient
-        .verifySiweMessage({
-          message:
-            body.message,
-          signature:
-            body.signature,
-          domain:
-            appUrl.host,
-          nonce:
-            expectedNonce,
-          address:
-            getAddress(
-              parsed.address,
-            ),
-        });
-
-    if (!verified) {
-      throw new Error(
-        'Wallet signature verification failed.',
       );
     }
 
@@ -140,10 +131,37 @@ export async function POST(
         parsed.address,
       );
 
+    const verified =
+      await publicClient
+        .verifySiweMessage({
+          message:
+            body.message,
+
+          signature:
+            body.signature,
+
+          domain:
+            appUrl.host,
+
+          nonce:
+            expectedNonce,
+
+          address,
+        });
+
+    if (!verified) {
+      throw new Error(
+        'Wallet signature verification failed.',
+      );
+    }
+
     const db =
       supabaseAdmin();
 
-    const { data, error } =
+    const {
+      data,
+      error,
+    } =
       await db.rpc(
         'toby_hop_get_or_create_wallet_user',
         {
@@ -163,12 +181,16 @@ export async function POST(
 
     return NextResponse.json({
       authenticated: true,
+      authMethod: 'siwe',
       address,
       user: data,
     });
   } catch (cause) {
     return NextResponse.json(
       {
+        authenticated:
+          false,
+
         error:
           cause instanceof Error
             ? cause.message
