@@ -1,23 +1,26 @@
 import {
-  readWalletSession,
-  type WalletSession,
-} from '@/lib/auth/wallet-session';
+  requireAppSession,
+} from '@/lib/auth/require-app-session';
 
-export async function requireWalletSession(): Promise<WalletSession> {
+export type WalletSession = {
+  address: `0x${string}`;
+  chainId: 8453;
+};
+
+export async function requireWalletSession():
+Promise<WalletSession> {
   const session =
-    await readWalletSession();
+    await requireAppSession();
 
-  if (!session) {
+  if (!session.address) {
     throw new Error(
-      'Wallet authentication required.',
+      'A verified wallet address is required.',
     );
   }
 
-  if (session.chainId !== 8453) {
-    throw new Error(
-      'Toby Hop requires Base mainnet.',
-    );
-  }
-
-  return session;
+  return {
+    address:
+      session.address,
+    chainId: 8453,
+  };
 }
