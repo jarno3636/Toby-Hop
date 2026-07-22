@@ -1,6 +1,10 @@
 'use client';
 
 import { sdk } from '@farcaster/miniapp-sdk';
+import {
+  getAddress,
+  isAddress,
+} from 'viem';
 import { createSiweMessage } from 'viem/siwe';
 import { base } from 'wagmi/chains';
 import {
@@ -17,6 +21,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -40,7 +45,10 @@ import type {
   LeaderRow,
 } from '@/lib/types';
 
-type View = 'hop' | 'leaders' | 'me';
+type View =
+  | 'hop'
+  | 'leaders'
+  | 'me';
 
 type HopState =
   | 'idle'
@@ -58,29 +66,30 @@ type MiniAppUser = {
   pfpUrl?: string;
 };
 
-type SessionResponse = {
-  authenticated: boolean;
-  address?: `0x${string}`;
-  user?: Partial<HopUser> & {
+type StoredHopUser =
+  Partial<HopUser> & {
     id?: string;
     wallet_address?: string | null;
   };
+
+type SessionResponse = {
+  authenticated: boolean;
+  address?: `0x${string}`;
+  user?: StoredHopUser | null;
   error?: string;
 };
 
 type VerifyAuthResponse = {
   authenticated: boolean;
-  address: `0x${string}`;
-  user?: Partial<HopUser> & {
-    id?: string;
-    wallet_address?: string | null;
-  };
+  address?: `0x${string}`;
+  user?: StoredHopUser | null;
   error?: string;
 };
 
 type QuoteResponse = {
   allowanceTarget: `0x${string}`;
   buyAmount: string;
+
   transaction: {
     to: `0x${string}`;
     data: `0x${string}`;
@@ -89,10 +98,21 @@ type QuoteResponse = {
   };
 };
 
-type LeaderRowWithWallet = LeaderRow & {
-  id?: string;
-  wallet_address?: string | null;
+type LeaderRowWithWallet =
+  LeaderRow & {
+    id?: string;
+    wallet_address?: string | null;
+  };
+
+type MiniAppContextResult = {
+  user: MiniAppUser | null;
+  added: boolean;
+  available: boolean;
 };
+
+const API_TIMEOUT_MS = 15_000;
+const SDK_TIMEOUT_MS = 2_000;
+const TRANSACTION_TIMEOUT_MS = 120_000;
 
 const fallbackPfp =
   'data:image/svg+xml,' +
@@ -109,14 +129,31 @@ const fallbackPfp =
         rx="48"
         fill="#0b4345"
       />
-      <text
-        x="48"
-        y="62"
-        text-anchor="middle"
-        font-size="46"
-      >
-        🐸
-      </text>
+      <circle
+        cx="48"
+        cy="48"
+        r="32"
+        fill="#73d7b1"
+      />
+      <circle
+        cx="36"
+        cy="39"
+        r="5"
+        fill="#082f31"
+      />
+      <circle
+        cx="60"
+        cy="39"
+        r="5"
+        fill="#082f31"
+      />
+      <path
+        d="M34 56 Q48 68 62 56"
+        fill="none"
+        stroke="#082f31"
+        stroke-width="4"
+        stroke-linecap="round"
+      />
     </svg>
   `);
 
@@ -139,7 +176,7 @@ const emptyUser: HopUser = {
 };
 
 function normalizeUser(
-  value?: SessionResponse['user'],
+  value?: StoredHopUser | null,
   farcasterUser?: MiniAppUser | null,
 ): HopUser {
   return {
@@ -180,19 +217,29 @@ function normalizeUser(
       Number(value?.big_pond_energy ?? 0),
 
     total_toby_atomic:
-      String(value?.total_toby_atomic ?? '0'),
+      String(
+        value?.total_toby_atomic ??
+          '0',
+      ),
 
     total_usdc_atomic:
-      String(value?.total_usdc_atomic ?? '0'),
+      String(
+        value?.total_usdc_atomic ??
+          '0',
+      ),
 
     first_hop_at:
-      value?.first_hop_at ?? null,
+      value?.first_hop_at ??
+      null,
 
     last_hop_at:
-      value?.last_hop_at ?? null,
+      value?.last_hop_at ??
+      null,
 
     today_hopped:
-      Boolean(value?.today_hopped),
+      Boolean(
+        value?.today_hopped,
+      ),
 
     rank:
       value?.rank == null
@@ -206,10 +253,11 @@ function parseApiError(
   fallback: string,
 ): string {
   try {
-    const parsed = JSON.parse(raw) as {
-      error?: string;
-      message?: string;
-    };
+    const parsed =
+      JSON.parse(raw) as {
+        error?: string;
+        message?: string;
+      };
 
     return (
       parsed.error ||
@@ -217,7 +265,7 @@ function parseApiError(
       fallback
     );
   } catch {
-    return raw || fallback;
+    return raw.trim() || fallback;
   }
 }
 
@@ -229,59 +277,114 @@ function getErrorMessage(
   }
 
   const originalMessage =
-    cause.message || '';
+    cause.message?.trim() ||
+    'The pond could not complete this hop.';
 
   const message =
     originalMessage.toLowerCase();
 
   if (
+    message.includes('aborted') ||
+    message.includes('timed out') ||
+    message.includes('timeout')
+  ) {
+    return 'The pond took too long to respond. Please try again.';
+  }
+
+  if (
     message.includes('user rejected') ||
     message.includes('user denied') ||
-    message.includes('rejected the request')
+    message.includes(
+      'rejected the request',
+    )
   ) {
     return 'The request was cancelled.';
   }
 
   if (
-    message.includes('insufficient funds') ||
-    message.includes('insufficient balance')
+    message.includes(
+      'insufficient funds',
+    ) ||
+    message.includes(
+      'insufficient balance',
+    )
   ) {
     return 'You need at least one cent of USDC on Base and a small amount of ETH for gas.';
   }
 
   if (
-    message.includes('already complete') ||
-    message.includes('already hopped')
+    message.includes(
+      'already complete',
+    ) ||
+    message.includes(
+      'already hopped',
+    ) ||
+    message.includes(
+      'one official hop',
+    )
   ) {
     return 'You already completed today’s official hop.';
   }
 
   if (
     message.includes('nonce') ||
-    message.includes('signature verification')
+    message.includes(
+      'signature verification',
+    ) ||
+    message.includes(
+      'invalid signature',
+    )
   ) {
     return 'Your sign-in request expired. Please sign in again.';
   }
 
   if (
-    message.includes('wallet authentication required') ||
-    message.includes('unauthorized') ||
-    message.includes('session')
+    message.includes(
+      'wallet authentication required',
+    ) ||
+    message.includes(
+      'not authenticated',
+    ) ||
+    message.includes(
+      'unauthorized',
+    ) ||
+    message.includes(
+      'invalid session',
+    ) ||
+    message.includes(
+      'session expired',
+    )
   ) {
     return 'Connect and sign in with your Base wallet to continue.';
   }
 
   if (
-    message.includes('wrong chain') ||
-    message.includes('chain mismatch') ||
-    message.includes('requires base')
+    message.includes(
+      'wrong chain',
+    ) ||
+    message.includes(
+      'chain mismatch',
+    ) ||
+    message.includes(
+      'requires base',
+    ) ||
+    message.includes(
+      'unsupported chain',
+    )
   ) {
     return 'Switch your wallet to Base and try again.';
   }
 
   if (
-    message.includes('connector') ||
-    message.includes('provider')
+    message.includes(
+      'connector',
+    ) ||
+    message.includes(
+      'provider',
+    ) ||
+    message.includes(
+      'no compatible wallet',
+    )
   ) {
     return 'The Base wallet could not connect. Close and reopen Toby Hop, then try again.';
   }
@@ -294,6 +397,17 @@ function getErrorMessage(
     return 'The Toby Hop token configuration is incomplete.';
   }
 
+  if (
+    message.includes(
+      'allowance',
+    ) ||
+    message.includes(
+      'approval transaction failed',
+    )
+  ) {
+    return 'USDC approval did not complete. Please try the hop again.';
+  }
+
   return originalMessage;
 }
 
@@ -304,16 +418,143 @@ function shortenAddress(
     return 'Hopper';
   }
 
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+  return (
+    `${address.slice(0, 6)}` +
+    `…${address.slice(-4)}`
+  );
 }
 
-async function getSafeMiniAppContext(): Promise<{
-  user: MiniAppUser | null;
-  added: boolean;
-}> {
+function addressesMatch(
+  first?: string | null,
+  second?: string | null,
+): boolean {
+  if (!first || !second) {
+    return false;
+  }
+
+  return (
+    first.toLowerCase() ===
+    second.toLowerCase()
+  );
+}
+
+function isSessionError(
+  message: string,
+): boolean {
+  const normalized =
+    message.toLowerCase();
+
+  return (
+    normalized.includes(
+      'authentication',
+    ) ||
+    normalized.includes(
+      'unauthorized',
+    ) ||
+    normalized.includes(
+      'session expired',
+    ) ||
+    normalized.includes(
+      'invalid session',
+    )
+  );
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>(
+    (resolve, reject) => {
+      const timer =
+        window.setTimeout(() => {
+          reject(
+            new Error(message),
+          );
+        }, milliseconds);
+
+      promise.then(
+        (value) => {
+          window.clearTimeout(
+            timer,
+          );
+
+          resolve(value);
+        },
+        (cause) => {
+          window.clearTimeout(
+            timer,
+          );
+
+          reject(cause);
+        },
+      );
+    },
+  );
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = API_TIMEOUT_MS,
+): Promise<Response> {
+  const controller =
+    new AbortController();
+
+  const timer =
+    window.setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal:
+        init.signal ??
+        controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function readJsonResponse<T>(
+  response: Response,
+  fallbackError: string,
+): Promise<T> {
+  const raw =
+    await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      parseApiError(
+        raw,
+        fallbackError,
+      ),
+    );
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(
+      fallbackError,
+    );
+  }
+}
+
+async function getSafeMiniAppContext():
+Promise<MiniAppContextResult> {
   try {
     const context =
-      await Promise.resolve(sdk.context);
+      await withTimeout(
+        Promise.resolve(
+          sdk.context,
+        ),
+        SDK_TIMEOUT_MS,
+        'Farcaster context timed out.',
+      );
 
     if (
       !context ||
@@ -322,6 +563,7 @@ async function getSafeMiniAppContext(): Promise<{
       return {
         user: null,
         added: false,
+        available: false,
       };
     }
 
@@ -336,19 +578,24 @@ async function getSafeMiniAppContext(): Promise<{
     return {
       user:
         typedContext.user &&
-        typeof typedContext.user === 'object'
+        typeof typedContext.user ===
+          'object'
           ? typedContext.user
           : null,
 
       added:
         Boolean(
-          typedContext.client?.added,
+          typedContext.client
+            ?.added,
         ),
+
+      available: true,
     };
   } catch {
     return {
       user: null,
       added: false,
+      available: false,
     };
   }
 }
@@ -379,22 +626,29 @@ export function TobyHopApp() {
   const [user, setUser] =
     useState<HopUser>(emptyUser);
 
-  const [authenticated, setAuthenticated] =
-    useState(false);
+  const [
+    authenticated,
+    setAuthenticated,
+  ] = useState(false);
 
   const [
     authenticatedAddress,
     setAuthenticatedAddress,
-  ] = useState<`0x${string}` | null>(
-    null,
-  );
+  ] = useState<
+    `0x${string}` | null
+  >(null);
 
   const [
     farcasterUser,
     setFarcasterUser,
-  ] = useState<MiniAppUser | null>(
-    null,
-  );
+  ] = useState<
+    MiniAppUser | null
+  >(null);
+
+  const [
+    farcasterAvailable,
+    setFarcasterAvailable,
+  ] = useState(false);
 
   const [
     miniAppAdded,
@@ -408,59 +662,94 @@ export function TobyHopApp() {
     useState<HopState>('idle');
 
   const [receipt, setReceipt] =
-    useState<HopReceipt | null>(null);
+    useState<HopReceipt | null>(
+      null,
+    );
 
   const [error, setError] =
     useState('');
 
-  const [leaderKind, setLeaderKind] =
-    useState<LeaderboardKind>('streak');
+  const [
+    leaderKind,
+    setLeaderKind,
+  ] =
+    useState<LeaderboardKind>(
+      'streak',
+    );
 
   const [leaders, setLeaders] =
-    useState<LeaderRowWithWallet[]>([]);
+    useState<
+      LeaderRowWithWallet[]
+    >([]);
 
-  const [leaderLoading, setLeaderLoading] =
-    useState(false);
+  const [
+    leaderLoading,
+    setLeaderLoading,
+  ] = useState(false);
 
-  const todaysPond = useMemo(
-    () => getTodaysPond(),
-    [],
-  );
+  const initializationRef =
+    useRef(false);
 
-  const particles = useMemo(() => {
-    if (!todaysPond.particle) {
-      return [];
-    }
+  const authenticationRef =
+    useRef(false);
 
-    return Array.from(
-      {
-        length:
-          todaysPond.particleCount,
-      },
-      (_, index) => ({
-        id:
-          `${todaysPond.particle}-${index}`,
+  const hopInProgressRef =
+    useRef(false);
 
-        type:
-          todaysPond.particle!,
-
-        left:
-          4 +
-          ((index * 37 + 11) % 92),
-
-        delay:
-          ((index * 23) % 31) / 10,
-
-        duration:
-          3.4 +
-          ((index * 17) % 25) / 10,
-
-        scale:
-          0.65 +
-          ((index * 13) % 9) / 10,
-      }),
+  const todaysPond =
+    useMemo(
+      () => getTodaysPond(),
+      [],
     );
-  }, [todaysPond]);
+
+  const particles =
+    useMemo(() => {
+      if (
+        !todaysPond.particle
+      ) {
+        return [];
+      }
+
+      return Array.from(
+        {
+          length:
+            todaysPond
+              .particleCount,
+        },
+        (_, index) => ({
+          id:
+            `${todaysPond.particle}` +
+            `-${index}`,
+
+          type:
+            todaysPond
+              .particle!,
+
+          left:
+            4 +
+            ((index * 37 +
+              11) %
+              92),
+
+          delay:
+            ((index * 23) %
+              31) /
+            10,
+
+          duration:
+            3.4 +
+            ((index * 17) %
+              25) /
+              10,
+
+          scale:
+            0.65 +
+            ((index * 13) %
+              9) /
+              10,
+        }),
+      );
+    }, [todaysPond]);
 
   const {
     address,
@@ -471,7 +760,8 @@ export function TobyHopApp() {
   const {
     connectors,
     connectAsync,
-    isPending: connectPending,
+    isPending:
+      connectPending,
   } = useConnect();
 
   const {
@@ -506,52 +796,74 @@ export function TobyHopApp() {
     user.display_name ||
     user.username ||
     shortenAddress(
-      authenticatedAddress,
+      authenticatedAddress ??
+        address,
     );
 
   const canCast =
+    farcasterAvailable &&
     Boolean(farcasterUser);
 
   const walletMatchesSession =
-    Boolean(
-      address &&
-      authenticatedAddress &&
-      address.toLowerCase() ===
-        authenticatedAddress.toLowerCase(),
+    addressesMatch(
+      address,
+      authenticatedAddress,
+    );
+
+  const resetWalletSession =
+    useCallback(
+      (
+        currentFarcasterUser:
+          MiniAppUser | null =
+          null,
+      ) => {
+        setAuthenticated(false);
+        setAuthenticatedAddress(
+          null,
+        );
+
+        setUser(
+          normalizeUser(
+            undefined,
+            currentFarcasterUser,
+          ),
+        );
+      },
+      [],
     );
 
   const loadWalletSession =
     useCallback(
       async (
-        currentFarcasterUser?: MiniAppUser | null,
-      ) => {
+        currentFarcasterUser:
+          MiniAppUser | null =
+          null,
+      ): Promise<boolean> => {
         const response =
-          await fetch(
+          await fetchWithTimeout(
             '/api/auth/session',
             {
               method: 'GET',
-              credentials: 'include',
+              credentials:
+                'include',
               cache: 'no-store',
             },
           );
 
         const result =
-          (await response.json()) as SessionResponse;
+          await readJsonResponse<
+            SessionResponse
+          >(
+            response,
+            'Unable to check your wallet session.',
+          );
 
         if (
-          !response.ok ||
           !result.authenticated ||
           !result.address
         ) {
-          setAuthenticated(false);
-          setAuthenticatedAddress(null);
-
-          setUser(
-            normalizeUser(
-              undefined,
-              currentFarcasterUser ??
-                farcasterUser,
-            ),
+          resetWalletSession(
+            currentFarcasterUser,
           );
 
           return false;
@@ -560,124 +872,164 @@ export function TobyHopApp() {
         setAuthenticated(true);
 
         setAuthenticatedAddress(
-          result.address,
+          getAddress(
+            result.address,
+          ),
         );
 
         setUser(
           normalizeUser(
             result.user,
-            currentFarcasterUser ??
-              farcasterUser,
+            currentFarcasterUser,
           ),
         );
 
         return true;
       },
-      [farcasterUser],
+      [resetWalletSession],
     );
 
   const syncFarcasterProfile =
     useCallback(
       async (
         miniUser: MiniAppUser,
+        walletAddress?:
+          string | null,
       ) => {
-        /*
-          Profile sync is optional. Wallet SIWE remains the
-          authentication source of truth.
-        */
         try {
           const response =
-            await sdk.quickAuth.fetch(
-              '/api/me',
-              {
-                method: 'POST',
-                headers: {
-                  'content-type':
-                    'application/json',
+            await withTimeout(
+              sdk.quickAuth.fetch(
+                '/api/me',
+                {
+                  method: 'POST',
+
+                  headers: {
+                    'content-type':
+                      'application/json',
+                  },
+
+                  body:
+                    JSON.stringify({
+                      username:
+                        miniUser
+                          .username ??
+                        null,
+
+                      displayName:
+                        miniUser
+                          .displayName ??
+                        null,
+
+                      pfpUrl:
+                        miniUser
+                          .pfpUrl ??
+                        null,
+
+                      walletAddress:
+                        walletAddress ??
+                        null,
+                    }),
                 },
-                body: JSON.stringify({
-                  username:
-                    miniUser.username ??
-                    null,
-
-                  displayName:
-                    miniUser.displayName ??
-                    null,
-
-                  pfpUrl:
-                    miniUser.pfpUrl ??
-                    null,
-
-                  walletAddress:
-                    authenticatedAddress ??
-                    address ??
-                    null,
-                }),
-              },
+              ),
+              API_TIMEOUT_MS,
+              'Profile sync timed out.',
             );
 
           if (!response.ok) {
             return;
           }
 
+          const raw =
+            await response.text();
+
+          if (!raw) {
+            return;
+          }
+
           const profile =
-            (await response.json()) as Partial<HopUser>;
+            JSON.parse(
+              raw,
+            ) as Partial<HopUser>;
 
-          setUser((previous) => ({
-            ...previous,
+          setUser(
+            (previous) => ({
+              ...previous,
 
-            username:
-              profile.username ??
-              miniUser.username ??
-              previous.username,
+              username:
+                profile.username ??
+                miniUser.username ??
+                previous.username,
 
-            display_name:
-              profile.display_name ??
-              miniUser.displayName ??
-              previous.display_name,
+              display_name:
+                profile.display_name ??
+                miniUser
+                  .displayName ??
+                previous
+                  .display_name,
 
-            pfp_url:
-              profile.pfp_url ??
-              miniUser.pfpUrl ??
-              previous.pfp_url,
-          }));
+              pfp_url:
+                profile.pfp_url ??
+                miniUser.pfpUrl ??
+                previous.pfp_url,
+            }),
+          );
         } catch {
           /*
-            Toby Hop still works if the host does not support
-            Farcaster Quick Auth.
+            Farcaster profile data is optional.
+            Wallet authentication remains authoritative.
           */
         }
       },
-      [
-        address,
-        authenticatedAddress,
-      ],
+      [],
     );
 
   useEffect(() => {
-    let active = true;
+    if (
+      initializationRef.current
+    ) {
+      return;
+    }
+
+    initializationRef.current =
+      true;
+
+    let cancelled = false;
 
     async function initialize() {
       try {
         setError('');
 
+        /*
+          The ready call must never be allowed to hold
+          the entire interface hostage.
+        */
         try {
-          await sdk.actions.ready();
+          await withTimeout(
+            sdk.actions.ready(),
+            SDK_TIMEOUT_MS,
+            'Farcaster ready timed out.',
+          );
         } catch {
           /*
-            Standard web browsers do not need this.
+            Normal browser and Base wallet sessions
+            can continue without Farcaster ready.
           */
         }
 
         const context =
           await getSafeMiniAppContext();
 
-        if (!active) {
+        if (cancelled) {
           return;
         }
 
         setFarcasterUser(
           context.user,
+        );
+
+        setFarcasterAvailable(
+          context.available,
         );
 
         setMiniAppAdded(
@@ -688,13 +1040,19 @@ export function TobyHopApp() {
           context.user,
         );
       } catch (cause) {
-        if (active) {
+        if (!cancelled) {
           setError(
-            getErrorMessage(cause),
+            getErrorMessage(
+              cause,
+            ),
+          );
+
+          resetWalletSession(
+            null,
           );
         }
       } finally {
-        if (active) {
+        if (!cancelled) {
           setLoading(false);
         }
       }
@@ -703,21 +1061,28 @@ export function TobyHopApp() {
     void initialize();
 
     return () => {
-      active = false;
+      cancelled = true;
     };
-  }, [loadWalletSession]);
+  }, [
+    loadWalletSession,
+    resetWalletSession,
+  ]);
 
   useEffect(() => {
     if (
-      authenticated &&
-      farcasterUser
+      !authenticated ||
+      !farcasterUser
     ) {
-      void syncFarcasterProfile(
-        farcasterUser,
-      );
+      return;
     }
+
+    void syncFarcasterProfile(
+      farcasterUser,
+      authenticatedAddress,
+    );
   }, [
     authenticated,
+    authenticatedAddress,
     farcasterUser,
     syncFarcasterProfile,
   ]);
@@ -732,10 +1097,14 @@ export function TobyHopApp() {
     }
 
     if (
-      address.toLowerCase() !==
-      authenticatedAddress.toLowerCase()
+      !addressesMatch(
+        address,
+        authenticatedAddress,
+      )
     ) {
-      setAuthenticated(false);
+      resetWalletSession(
+        farcasterUser,
+      );
 
       setError(
         'The connected wallet changed. Sign in again to protect your pond record.',
@@ -745,6 +1114,8 @@ export function TobyHopApp() {
     address,
     authenticated,
     authenticatedAddress,
+    farcasterUser,
+    resetWalletSession,
   ]);
 
   useEffect(() => {
@@ -755,7 +1126,7 @@ export function TobyHopApp() {
       return;
     }
 
-    let active = true;
+    let cancelled = false;
 
     async function loadLeaderboard() {
       setLeaderLoading(true);
@@ -764,44 +1135,51 @@ export function TobyHopApp() {
         setError('');
 
         const response =
-          await fetch(
+          await fetchWithTimeout(
             `/api/leaderboard?kind=${leaderKind}`,
             {
               method: 'GET',
-              credentials: 'include',
+              credentials:
+                'include',
               cache: 'no-store',
             },
           );
 
-        const raw =
-          await response.text();
-
-        if (!response.ok) {
-          throw new Error(
-            parseApiError(
-              raw,
-              'Unable to load the leaderboard.',
-            ),
-          );
-        }
-
         const rows =
-          JSON.parse(
-            raw,
-          ) as LeaderRowWithWallet[];
+          await readJsonResponse<
+            LeaderRowWithWallet[]
+          >(
+            response,
+            'Unable to load the leaderboard.',
+          );
 
-        if (active) {
+        if (!cancelled) {
           setLeaders(rows);
         }
       } catch (cause) {
-        if (active) {
-          setError(
-            getErrorMessage(cause),
-          );
+        if (!cancelled) {
+          const message =
+            getErrorMessage(
+              cause,
+            );
+
+          setError(message);
+
+          if (
+            isSessionError(
+              message,
+            )
+          ) {
+            resetWalletSession(
+              farcasterUser,
+            );
+          }
         }
       } finally {
-        if (active) {
-          setLeaderLoading(false);
+        if (!cancelled) {
+          setLeaderLoading(
+            false,
+          );
         }
       }
     }
@@ -809,18 +1187,28 @@ export function TobyHopApp() {
     void loadLeaderboard();
 
     return () => {
-      active = false;
+      cancelled = true;
     };
   }, [
     authenticated,
+    farcasterUser,
     leaderKind,
+    resetWalletSession,
     view,
   ]);
 
   async function provideTapFeedback() {
+    if (!farcasterAvailable) {
+      return;
+    }
+
     try {
       const capabilities =
-        await sdk.getCapabilities();
+        await withTimeout(
+          sdk.getCapabilities(),
+          SDK_TIMEOUT_MS,
+          'Capabilities timed out.',
+        );
 
       if (
         capabilities.includes(
@@ -828,7 +1216,9 @@ export function TobyHopApp() {
         )
       ) {
         await sdk.haptics
-          .impactOccurred('medium');
+          .impactOccurred(
+            'medium',
+          );
       }
     } catch {
       /*
@@ -842,15 +1232,13 @@ export function TobyHopApp() {
       return null;
     }
 
-    const wantsFarcaster =
-      Boolean(farcasterUser);
-
-    if (wantsFarcaster) {
+    if (farcasterAvailable) {
       const farcasterConnector =
         connectors.find(
           (connector) => {
             const searchable =
-              `${connector.id} ${connector.name}`
+              `${connector.id} ` +
+              `${connector.name}`
                 .toLowerCase();
 
             return (
@@ -859,72 +1247,97 @@ export function TobyHopApp() {
               ) ||
               searchable.includes(
                 'miniapp',
+              ) ||
+              searchable.includes(
+                'mini app',
               )
             );
           },
         );
 
-      if (farcasterConnector) {
+      if (
+        farcasterConnector
+      ) {
         return farcasterConnector;
       }
     }
 
-    const baseConnector =
+    const injectedConnector =
       connectors.find(
         (connector) => {
           const searchable =
-            `${connector.id} ${connector.name}`
+            `${connector.id} ` +
+            `${connector.name}`
               .toLowerCase();
 
           return (
+            connector.id ===
+              'injected' ||
             searchable.includes(
-              'base',
+              'injected',
             ) ||
             searchable.includes(
-              'coinbase',
+              'browser wallet',
             )
           );
         },
       );
 
-    if (baseConnector) {
-      return baseConnector;
+    if (
+      injectedConnector
+    ) {
+      return injectedConnector;
     }
 
-    const injectedConnector =
+    const walletConnector =
       connectors.find(
-        (connector) =>
-          connector.id ===
-            'injected' ||
-          connector.name
-            .toLowerCase()
-            .includes('injected'),
+        (connector) => {
+          const searchable =
+            `${connector.id} ` +
+            `${connector.name}`
+              .toLowerCase();
+
+          return (
+            searchable.includes(
+              'coinbase',
+            ) ||
+            searchable.includes(
+              'base wallet',
+            ) ||
+            searchable.includes(
+              'walletconnect',
+            )
+          );
+        },
       );
 
     return (
-      injectedConnector ??
+      walletConnector ??
       connectors[0]
     );
   }
 
-  async function getConnectedWallet(): Promise<
-    `0x${string}`
-  > {
+  async function getConnectedWallet():
+  Promise<`0x${string}`> {
     if (
       isConnected &&
       address
     ) {
-      return address;
+      return getAddress(
+        address,
+      );
     }
 
-    setHopState('connecting');
+    setHopState(
+      'connecting',
+    );
 
     const connector =
       chooseConnector();
 
     if (!connector) {
       throw new Error(
-        'No compatible Base wallet connector was found.',
+        'No compatible wallet connector was found.',
       );
     }
 
@@ -943,11 +1356,15 @@ export function TobyHopApp() {
       );
     }
 
-    return wallet;
+    return getAddress(
+      wallet,
+    );
   }
 
   async function ensureBaseChain() {
-    if (chainId === base.id) {
+    if (
+      chainId === base.id
+    ) {
       return;
     }
 
@@ -956,46 +1373,55 @@ export function TobyHopApp() {
     });
   }
 
-  async function signInWithWallet() {
+  async function signInWithWallet():
+  Promise<
+    `0x${string}` | null
+  > {
+    if (
+      authenticationRef.current
+    ) {
+      return null;
+    }
+
+    authenticationRef.current =
+      true;
+
     setError('');
 
     try {
       const wallet =
         await getConnectedWallet();
 
-      setHopState('signing-in');
+      setHopState(
+        'signing-in',
+      );
 
       await ensureBaseChain();
 
       const nonceResponse =
-        await fetch(
+        await fetchWithTimeout(
           '/api/auth/nonce',
           {
             method: 'GET',
-            credentials: 'include',
+            credentials:
+              'include',
             cache: 'no-store',
           },
         );
 
-      const nonceRaw =
-        await nonceResponse.text();
+      const nonceResult =
+        await readJsonResponse<{
+          nonce?: string;
+        }>(
+          nonceResponse,
+          'Unable to create a sign-in request.',
+        );
 
-      if (!nonceResponse.ok) {
+      if (!nonceResult.nonce) {
         throw new Error(
-          parseApiError(
-            nonceRaw,
-            'Unable to create a sign-in request.',
-          ),
+          'The server did not return a sign-in nonce.',
         );
       }
-
-      const {
-        nonce,
-      } = JSON.parse(
-        nonceRaw,
-      ) as {
-        nonce: string;
-      };
 
       const message =
         createSiweMessage({
@@ -1006,7 +1432,8 @@ export function TobyHopApp() {
           uri:
             window.location.origin,
           version: '1',
-          nonce,
+          nonce:
+            nonceResult.nonce,
           statement:
             'Sign in to Toby Hop and protect your daily pond record.',
           issuedAt:
@@ -1019,38 +1446,33 @@ export function TobyHopApp() {
         });
 
       const verifyResponse =
-        await fetch(
+        await fetchWithTimeout(
           '/api/auth/verify',
           {
             method: 'POST',
-            credentials: 'include',
+            credentials:
+              'include',
+
             headers: {
               'content-type':
                 'application/json',
             },
-            body: JSON.stringify({
-              message,
-              signature,
-            }),
+
+            body:
+              JSON.stringify({
+                message,
+                signature,
+              }),
           },
         );
 
-      const verifyRaw =
-        await verifyResponse.text();
-
-      if (!verifyResponse.ok) {
-        throw new Error(
-          parseApiError(
-            verifyRaw,
-            'Wallet authentication failed.',
-          ),
-        );
-      }
-
       const result =
-        JSON.parse(
-          verifyRaw,
-        ) as VerifyAuthResponse;
+        await readJsonResponse<
+          VerifyAuthResponse
+        >(
+          verifyResponse,
+          'Wallet authentication failed.',
+        );
 
       if (
         !result.authenticated ||
@@ -1062,10 +1484,26 @@ export function TobyHopApp() {
         );
       }
 
+      const verifiedAddress =
+        getAddress(
+          result.address,
+        );
+
+      if (
+        !addressesMatch(
+          wallet,
+          verifiedAddress,
+        )
+      ) {
+        throw new Error(
+          'The authenticated wallet did not match the connected wallet.',
+        );
+      }
+
       setAuthenticated(true);
 
       setAuthenticatedAddress(
-        result.address,
+        verifiedAddress,
       );
 
       setUser(
@@ -1078,10 +1516,11 @@ export function TobyHopApp() {
       if (farcasterUser) {
         await syncFarcasterProfile(
           farcasterUser,
+          verifiedAddress,
         );
       }
 
-      return result.address;
+      return verifiedAddress;
     } catch (cause) {
       setError(
         getErrorMessage(cause),
@@ -1089,41 +1528,122 @@ export function TobyHopApp() {
 
       return null;
     } finally {
+      authenticationRef.current =
+        false;
+
       setHopState('idle');
     }
   }
 
   async function logoutWallet() {
+    setError('');
+
     try {
-      await fetch(
+      await fetchWithTimeout(
         '/api/auth/logout',
         {
           method: 'POST',
-          credentials: 'include',
+          credentials:
+            'include',
         },
       );
+    } catch {
+      /*
+        Clear the local state even if the server call fails.
+      */
     } finally {
-      setAuthenticated(false);
-      setAuthenticatedAddress(null);
-
-      setUser(
-        normalizeUser(
-          undefined,
-          farcasterUser,
-        ),
+      resetWalletSession(
+        farcasterUser,
       );
+
+      setReceipt(null);
+      setLeaders([]);
 
       disconnect();
     }
   }
 
+  async function ensureUsdcAllowance(
+    wallet:
+      `0x${string}`,
+    allowanceTarget:
+      `0x${string}`,
+  ) {
+    if (!publicClient) {
+      throw new Error(
+        'The Base network client is unavailable.',
+      );
+    }
+
+    const currentAllowance =
+      await publicClient
+        .readContract({
+          address:
+            USDC_ADDRESS,
+          abi: erc20Abi,
+          functionName:
+            'allowance',
+          args: [
+            wallet,
+            allowanceTarget,
+          ],
+        });
+
+    if (
+      currentAllowance >=
+      HOP_USDC_ATOMIC
+    ) {
+      return;
+    }
+
+    setHopState(
+      'approving',
+    );
+
+    const approvalHash =
+      await writeContractAsync({
+        address:
+          USDC_ADDRESS,
+        abi: erc20Abi,
+        functionName:
+          'approve',
+        args: [
+          allowanceTarget,
+          HOP_USDC_ATOMIC,
+        ],
+        chainId: base.id,
+      });
+
+    const approvalReceipt =
+      await publicClient
+        .waitForTransactionReceipt({
+          hash: approvalHash,
+          confirmations: 1,
+          timeout:
+            TRANSACTION_TIMEOUT_MS,
+        });
+
+    if (
+      approvalReceipt.status !==
+      'success'
+    ) {
+      throw new Error(
+        'The USDC approval transaction failed.',
+      );
+    }
+  }
+
   async function performHop() {
     if (
+      hopInProgressRef.current ||
       busy ||
       user.today_hopped
     ) {
       return;
     }
+
+    hopInProgressRef.current =
+      true;
 
     setError('');
 
@@ -1131,7 +1651,9 @@ export function TobyHopApp() {
 
     try {
       let wallet =
-        address ?? null;
+        address
+          ? getAddress(address)
+          : null;
 
       if (
         !authenticated ||
@@ -1154,179 +1676,203 @@ export function TobyHopApp() {
 
       await ensureBaseChain();
 
-      setHopState('quoting');
+      setHopState(
+        'quoting',
+      );
 
       const quoteResponse =
-        await fetch(
-          `/api/hop/quote?wallet=${wallet}`,
+        await fetchWithTimeout(
+          `/api/hop/quote?wallet=${encodeURIComponent(
+            wallet,
+          )}`,
           {
             method: 'GET',
-            credentials: 'include',
+            credentials:
+              'include',
             cache: 'no-store',
           },
         );
 
-      const quoteRaw =
-        await quoteResponse.text();
-
-      if (!quoteResponse.ok) {
-        throw new Error(
-          parseApiError(
-            quoteRaw,
-            'Unable to prepare today’s hop.',
-          ),
-        );
-      }
-
       const quote =
-        JSON.parse(
-          quoteRaw,
-        ) as QuoteResponse;
-
-      setHopState('approving');
-
-      const approvalHash =
-        await writeContractAsync({
-          address: USDC_ADDRESS,
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [
-            quote.allowanceTarget,
-            HOP_USDC_ATOMIC,
-          ],
-          chainId: base.id,
-        });
-
-      if (!publicClient) {
-        throw new Error(
-          'The Base network client is unavailable.',
+        await readJsonResponse<
+          QuoteResponse
+        >(
+          quoteResponse,
+          'Unable to prepare today’s hop.',
         );
-      }
-
-      const approvalReceipt =
-        await publicClient
-          .waitForTransactionReceipt({
-            hash: approvalHash,
-            confirmations: 1,
-            timeout: 120_000,
-          });
 
       if (
-        approvalReceipt.status !==
-        'success'
+        !isAddress(
+          quote.allowanceTarget,
+        )
       ) {
         throw new Error(
-          'The USDC approval transaction failed.',
+          'The hop quote returned an invalid allowance target.',
         );
       }
 
-      setHopState('swapping');
+      if (
+        !isAddress(
+          quote.transaction.to,
+        )
+      ) {
+        throw new Error(
+          'The hop quote returned an invalid swap target.',
+        );
+      }
+
+      if (
+        !quote.transaction.data ||
+        !quote.transaction.data.startsWith(
+          '0x',
+        )
+      ) {
+        throw new Error(
+          'The hop quote returned invalid transaction data.',
+        );
+      }
+
+      const allowanceTarget =
+        getAddress(
+          quote.allowanceTarget,
+        );
+
+      await ensureUsdcAllowance(
+        wallet,
+        allowanceTarget,
+      );
+
+      setHopState(
+        'swapping',
+      );
 
       const transactionHash =
         await sendTransactionAsync({
           to:
-            quote.transaction.to,
+            getAddress(
+              quote.transaction.to,
+            ),
+
           data:
             quote.transaction.data,
-          value: BigInt(
-            quote.transaction.value ??
-              '0',
-          ),
+
+          value:
+            BigInt(
+              quote.transaction
+                .value ??
+                '0',
+            ),
+
           gas:
             quote.transaction.gas
               ? BigInt(
-                  quote.transaction.gas,
+                  quote.transaction
+                    .gas,
                 )
               : undefined,
+
           chainId: base.id,
         });
 
-      setHopState('verifying');
+      setHopState(
+        'verifying',
+      );
 
       const verificationResponse =
-        await fetch(
+        await fetchWithTimeout(
           '/api/hop/verify',
           {
             method: 'POST',
-            credentials: 'include',
+            credentials:
+              'include',
+
             headers: {
               'content-type':
                 'application/json',
             },
-            body: JSON.stringify({
-              txHash:
-                transactionHash,
 
-              walletAddress:
-                wallet,
-            }),
+            body:
+              JSON.stringify({
+                txHash:
+                  transactionHash,
+
+                walletAddress:
+                  wallet,
+              }),
           },
+          TRANSACTION_TIMEOUT_MS +
+            30_000,
         );
-
-      const verificationRaw =
-        await verificationResponse.text();
-
-      if (
-        !verificationResponse.ok
-      ) {
-        throw new Error(
-          parseApiError(
-            verificationRaw,
-            'Unable to verify the completed hop.',
-          ),
-        );
-      }
 
       const completedHop =
-        JSON.parse(
-          verificationRaw,
-        ) as HopReceipt;
+        await readJsonResponse<
+          HopReceipt
+        >(
+          verificationResponse,
+          'Unable to verify the completed hop.',
+        );
 
-      setReceipt(completedHop);
+      setReceipt(
+        completedHop,
+      );
 
-      setUser((previous) => ({
-        ...previous,
+      setUser(
+        (previous) => ({
+          ...previous,
 
-        today_hopped: true,
+          today_hopped: true,
 
-        total_hops:
-          completedHop.totalHops,
+          total_hops:
+            completedHop
+              .totalHops,
 
-        current_streak:
-          completedHop.streak,
+          current_streak:
+            completedHop
+              .streak,
 
-        longest_streak:
-          Math.max(
-            previous.longest_streak,
-            completedHop.streak,
-          ),
+          longest_streak:
+            Math.max(
+              previous
+                .longest_streak,
+              completedHop
+                .streak,
+            ),
 
-        big_pond_energy:
-          previous.big_pond_energy +
-          1,
+          big_pond_energy:
+            previous
+              .big_pond_energy +
+            1,
 
-        current_title:
-          completedHop.title,
+          current_title:
+            completedHop.title,
 
-        total_toby_atomic: (
-          BigInt(
-            previous.total_toby_atomic,
-          ) +
-          BigInt(
-            completedHop.tobyAtomic,
-          )
-        ).toString(),
-      }));
+          total_toby_atomic:
+            (
+              BigInt(
+                previous
+                  .total_toby_atomic,
+              ) +
+              BigInt(
+                completedHop
+                  .tobyAtomic,
+              )
+            ).toString(),
+        }),
+      );
 
-      try {
-        await sdk.haptics
-          .notificationOccurred(
-            'success',
-          );
-      } catch {
-        /*
-          Optional outside Mini App hosts.
-        */
+      if (
+        farcasterAvailable
+      ) {
+        try {
+          await sdk.haptics
+            .notificationOccurred(
+              'success',
+            );
+        } catch {
+          /*
+            Haptics are optional.
+          */
+        }
       }
 
       if (
@@ -1334,32 +1880,53 @@ export function TobyHopApp() {
         !miniAppAdded
       ) {
         try {
-          await sdk.actions
-            .addMiniApp();
+          await withTimeout(
+            sdk.actions.addMiniApp(),
+            SDK_TIMEOUT_MS * 2,
+            'Add Mini App timed out.',
+          );
 
-          setMiniAppAdded(true);
+          setMiniAppAdded(
+            true,
+          );
         } catch {
           /*
-            The completed hop remains valid.
+            The verified hop remains valid.
           */
         }
       }
     } catch (cause) {
-      setError(
-        getErrorMessage(cause),
-      );
+      const message =
+        getErrorMessage(cause);
 
-      try {
-        await sdk.haptics
-          .notificationOccurred(
-            'error',
-          );
-      } catch {
-        /*
-          Optional outside Mini App hosts.
-        */
+      setError(message);
+
+      if (
+        isSessionError(message)
+      ) {
+        resetWalletSession(
+          farcasterUser,
+        );
+      }
+
+      if (
+        farcasterAvailable
+      ) {
+        try {
+          await sdk.haptics
+            .notificationOccurred(
+              'error',
+            );
+        } catch {
+          /*
+            Haptics are optional.
+          */
+        }
       }
     } finally {
+      hopInProgressRef.current =
+        false;
+
       setHopState('idle');
     }
   }
@@ -1372,21 +1939,29 @@ export function TobyHopApp() {
     setError('');
 
     const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env
+        .NEXT_PUBLIC_APP_URL ||
       window.location.origin;
 
     if (canCast) {
       try {
-        await sdk.actions.composeCast({
-          text:
-            receipt.castText,
-          embeds: [appUrl],
-        });
+        await withTimeout(
+          sdk.actions.composeCast({
+            text:
+              receipt.castText,
+
+            embeds: [
+              appUrl,
+            ],
+          }),
+          SDK_TIMEOUT_MS * 4,
+          'Cast composer timed out.',
+        );
 
         return;
       } catch {
         /*
-          Fall through to web share.
+          Fall through to the device share sheet.
         */
       }
     }
@@ -1403,27 +1978,35 @@ export function TobyHopApp() {
         return;
       }
 
-      await navigator.clipboard.writeText(
-        `${receipt.castText}\n\n${appUrl}`,
-      );
+      await navigator.clipboard
+        .writeText(
+          `${receipt.castText}\n\n${appUrl}`,
+        );
 
       setError(
         'Your hop message was copied.',
       );
     } catch (cause) {
+      if (
+        cause instanceof DOMException &&
+        cause.name ===
+          'AbortError'
+      ) {
+        return;
+      }
+
       setError(
         getErrorMessage(cause),
       );
     }
   }
 
-  function getHopStatus(): string {
-    if (user.today_hopped) {
+  function getHopStatus():
+  string {
+    if (
+      user.today_hopped
+    ) {
       return 'Today’s hop is complete';
-    }
-
-    if (!authenticated) {
-      return 'Tap Toby to join the pond';
     }
 
     switch (hopState) {
@@ -1437,7 +2020,7 @@ export function TobyHopApp() {
         return 'Finding today’s route';
 
       case 'approving':
-        return 'Approve one cent of USDC';
+        return 'Approving one cent of USDC';
 
       case 'swapping':
         return 'Toby is hopping';
@@ -1446,13 +2029,39 @@ export function TobyHopApp() {
         return 'Counting your hop';
 
       default:
-        return 'Tap Toby to hop';
+        return authenticated
+          ? 'Tap Toby to hop'
+          : 'Tap Toby to join the pond';
     }
   }
 
-  function getHopSubtext(): string {
-    if (user.today_hopped) {
+  function getHopSubtext():
+  string {
+    if (
+      user.today_hopped
+    ) {
       return 'One Big Pond Energy collected';
+    }
+
+    if (
+      hopState ===
+      'approving'
+    ) {
+      return 'Confirm the USDC approval in your wallet';
+    }
+
+    if (
+      hopState ===
+      'swapping'
+    ) {
+      return 'Confirm today’s hop in your wallet';
+    }
+
+    if (
+      hopState ===
+      'verifying'
+    ) {
+      return 'Waiting for Base to confirm the swap';
     }
 
     if (!authenticated) {
@@ -1462,11 +2071,41 @@ export function TobyHopApp() {
     return 'One cent USDC to TOBY';
   }
 
+  function getConnectButtonText():
+  string {
+    if (
+      hopState ===
+      'signing-in'
+    ) {
+      return 'SIGNING IN';
+    }
+
+    if (
+      hopState ===
+        'connecting' ||
+      connectPending
+    ) {
+      return 'CONNECTING';
+    }
+
+    return 'CONNECT WALLET';
+  }
+
   if (loading) {
     return (
       <main className="shell">
-        <div className="empty">
-          Opening the pond
+        <div
+          className="empty"
+          role="status"
+          aria-live="polite"
+        >
+          <strong>
+            Opening the pond
+          </strong>
+
+          <span>
+            Waking Toby up…
+          </span>
         </div>
       </main>
     );
@@ -1476,9 +2115,15 @@ export function TobyHopApp() {
     <main
       className={[
         'shell',
+
         `pond-theme-${todaysPond.id}`,
+
         todaysPond.goldenToby
           ? 'golden-toby-day'
+          : '',
+
+        busy
+          ? 'hop-is-busy'
           : '',
       ]
         .filter(Boolean)
@@ -1491,7 +2136,7 @@ export function TobyHopApp() {
           </div>
 
           <div className="tagline">
-            One hop every day
+            One hop. Every day.
           </div>
         </div>
 
@@ -1505,12 +2150,22 @@ export function TobyHopApp() {
                   ? logoutWallet
                   : signInWithWallet
               }
+              disabled={busy}
               aria-label={
                 authenticated
                   ? 'Sign out wallet'
                   : 'Sign in wallet'
               }
             >
+              <span
+                className={
+                  authenticated
+                    ? 'wallet-dot connected'
+                    : 'wallet-dot'
+                }
+                aria-hidden="true"
+              />
+
               {shortenAddress(
                 address,
               )}
@@ -1524,7 +2179,8 @@ export function TobyHopApp() {
             className="pfp"
             src={
               user.pfp_url ||
-              farcasterUser?.pfpUrl ||
+              farcasterUser
+                ?.pfpUrl ||
               fallbackPfp
             }
             alt={`${displayName} profile`}
@@ -1556,17 +2212,27 @@ export function TobyHopApp() {
 
       {!authenticated &&
         view === 'hop' && (
-          <section className="empty-state-card">
-            <strong>
-              Join the pond
-            </strong>
+          <section className="empty-state-card join-pond-card">
+            <div
+              className="join-pond-icon"
+              aria-hidden="true"
+            >
+              🐸
+            </div>
 
-            <p>
-              Connect a Base wallet and
-              sign once to save your hops,
-              streak, Big Pond Energy and
-              leaderboard position.
-            </p>
+            <div>
+              <strong>
+                Join the pond
+              </strong>
+
+              <p>
+                Connect a Base wallet and
+                sign once to save your
+                hops, streak, Big Pond
+                Energy and leaderboard
+                position.
+              </p>
+            </div>
 
             <button
               type="button"
@@ -1579,14 +2245,7 @@ export function TobyHopApp() {
                 connectPending
               }
             >
-              {hopState ===
-              'signing-in'
-                ? 'SIGNING IN'
-                : hopState ===
-                    'connecting' ||
-                  connectPending
-                  ? 'CONNECTING'
-                  : 'CONNECT WALLET'}
+              {getConnectButtonText()}
             </button>
           </section>
         )}
@@ -1595,7 +2254,7 @@ export function TobyHopApp() {
         <>
           <section className="todays-pond-card">
             <span className="today-label">
-              TODAYS POND
+              TODAY’S POND
             </span>
 
             <strong>
@@ -1608,15 +2267,24 @@ export function TobyHopApp() {
             </span>
           </section>
 
-          <section className="pond-card">
+          <section
+            className={`pond-card ${
+              busy
+                ? 'pond-card-busy'
+                : ''
+            }`}
+          >
             <div className="hop-copy">
               <h1>
-                Ready to hop
+                {user.today_hopped
+                  ? 'The ripple remains'
+                  : 'Ready to hop'}
               </h1>
 
               <p>
-                Exchange one small drop
-                for TOBY
+                {user.today_hopped
+                  ? 'Return tomorrow for another hop'
+                  : 'Exchange one small drop for TOBY'}
               </p>
             </div>
 
@@ -1710,11 +2378,19 @@ export function TobyHopApp() {
               }
             >
               <div
-                className={`frog ${
+                className={[
+                  'frog',
+
                   busy
                     ? 'hopping'
-                    : ''
-                }`}
+                    : '',
+
+                  user.today_hopped
+                    ? 'frog-resting'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
               >
                 <div className="frog-body" />
 
@@ -1739,7 +2415,10 @@ export function TobyHopApp() {
                 )}
             </button>
 
-            <div className="hop-instruction">
+            <div
+              className="hop-instruction"
+              aria-live="polite"
+            >
               <strong>
                 {getHopStatus()}
               </strong>
@@ -1748,6 +2427,22 @@ export function TobyHopApp() {
                 {getHopSubtext()}
               </span>
             </div>
+
+            {busy && (
+              <div
+                className="hop-progress"
+                role="status"
+              >
+                <span
+                  className="hop-progress-dot"
+                  aria-hidden="true"
+                />
+
+                <span>
+                  Keep Toby Hop open
+                </span>
+              </div>
+            )}
           </section>
 
           <section className="stat-grid">
@@ -1788,9 +2483,24 @@ export function TobyHopApp() {
 
       {view === 'leaders' && (
         <section className="panel">
-          <h1 className="panel-title">
-            Pond leaders
-          </h1>
+          <div className="panel-heading">
+            <div>
+              <span className="panel-eyebrow">
+                THE POND
+              </span>
+
+              <h1 className="panel-title">
+                Pond leaders
+              </h1>
+            </div>
+
+            {authenticated &&
+              user.rank && (
+                <div className="your-rank-pill">
+                  Your rank #{user.rank}
+                </div>
+              )}
+          </div>
 
           {!authenticated && (
             <div className="empty-state-card">
@@ -1812,7 +2522,7 @@ export function TobyHopApp() {
                 }
                 disabled={busy}
               >
-                CONNECT WALLET
+                {getConnectButtonText()}
               </button>
             </div>
           )}
@@ -1836,6 +2546,9 @@ export function TobyHopApp() {
                         ? 'active'
                         : ''
                     }
+                    disabled={
+                      leaderLoading
+                    }
                     onClick={() =>
                       setLeaderKind(
                         kind,
@@ -1853,8 +2566,18 @@ export function TobyHopApp() {
               </div>
 
               {leaderLoading && (
-                <div className="empty">
-                  Reading the pond
+                <div
+                  className="empty"
+                  role="status"
+                >
+                  <strong>
+                    Reading the pond
+                  </strong>
+
+                  <span>
+                    Gathering today’s
+                    leaders…
+                  </span>
                 </div>
               )}
 
@@ -1871,15 +2594,39 @@ export function TobyHopApp() {
                     const rowKey =
                       row.id ||
                       row.wallet_address ||
-                      String(row.fid);
+                      `${row.rank}-${rowName}`;
+
+                    const isCurrentUser =
+                      addressesMatch(
+                        row.wallet_address,
+                        authenticatedAddress,
+                      );
 
                     return (
                       <div
-                        className="leader-row"
+                        className={[
+                          'leader-row',
+
+                          isCurrentUser
+                            ? 'leader-row-you'
+                            : '',
+
+                          row.rank <= 3
+                            ? `leader-rank-${row.rank}`
+                            : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
                         key={rowKey}
                       >
                         <div className="rank">
-                          #{row.rank}
+                          {row.rank === 1
+                            ? '🥇'
+                            : row.rank === 2
+                              ? '🥈'
+                              : row.rank === 3
+                                ? '🥉'
+                                : `#${row.rank}`}
                         </div>
 
                         <img
@@ -1890,9 +2637,15 @@ export function TobyHopApp() {
                           alt=""
                         />
 
-                        <div>
+                        <div className="leader-identity">
                           <div className="leader-name">
                             {rowName}
+
+                            {isCurrentUser && (
+                              <span className="you-label">
+                                YOU
+                              </span>
+                            )}
                           </div>
 
                           <div className="leader-title">
@@ -1929,7 +2682,14 @@ export function TobyHopApp() {
               {!leaderLoading &&
                 !leaders.length && (
                   <div className="empty">
-                    No verified hops yet
+                    <strong>
+                      The pond is quiet
+                    </strong>
+
+                    <span>
+                      Complete the first
+                      verified hop.
+                    </span>
                   </div>
                 )}
             </>
@@ -1939,9 +2699,17 @@ export function TobyHopApp() {
 
       {view === 'me' && (
         <section className="panel">
-          <h1 className="panel-title">
-            Your pond record
-          </h1>
+          <div className="panel-heading">
+            <div>
+              <span className="panel-eyebrow">
+                HOPPER RECORD
+              </span>
+
+              <h1 className="panel-title">
+                Your pond record
+              </h1>
+            </div>
+          </div>
 
           {!authenticated && (
             <div className="empty-state-card">
@@ -1950,8 +2718,9 @@ export function TobyHopApp() {
               </strong>
 
               <p>
-                Connect and sign in to save
-                your progress across devices.
+                Connect and sign in to
+                save your progress across
+                devices.
               </p>
 
               <button
@@ -1962,71 +2731,120 @@ export function TobyHopApp() {
                 }
                 disabled={busy}
               >
-                CONNECT WALLET
+                {getConnectButtonText()}
               </button>
             </div>
           )}
 
           {authenticated && (
-            <div className="stat-grid profile-stats">
-              <div className="stat">
-                <strong>
-                  {user.current_streak}
-                </strong>
+            <>
+              <section className="record-hero">
+                <img
+                  src={
+                    user.pfp_url ||
+                    farcasterUser
+                      ?.pfpUrl ||
+                    fallbackPfp
+                  }
+                  alt=""
+                />
 
-                <span>
-                  Current streak
-                </span>
-              </div>
+                <div>
+                  <strong>
+                    {displayName}
+                  </strong>
 
-              <div className="stat">
-                <strong>
-                  {user.longest_streak}
-                </strong>
+                  <span>
+                    {user.current_title}
+                  </span>
+                </div>
 
-                <span>
-                  Best streak
-                </span>
-              </div>
-
-              <div className="stat">
-                <strong>
+                <div className="record-rank">
                   {user.rank
                     ? `#${user.rank}`
                     : '—'}
-                </strong>
 
-                <span>Pond rank</span>
+                  <span>
+                    pond rank
+                  </span>
+                </div>
+              </section>
+
+              <div className="stat-grid profile-stats">
+                <div className="stat">
+                  <strong>
+                    {user.current_streak}
+                  </strong>
+
+                  <span>
+                    Current streak
+                  </span>
+                </div>
+
+                <div className="stat">
+                  <strong>
+                    {user.longest_streak}
+                  </strong>
+
+                  <span>
+                    Best streak
+                  </span>
+                </div>
+
+                <div className="stat">
+                  <strong>
+                    {user.rank
+                      ? `#${user.rank}`
+                      : '—'}
+                  </strong>
+
+                  <span>
+                    Pond rank
+                  </span>
+                </div>
+
+                <div className="stat">
+                  <strong>
+                    {user.total_hops}
+                  </strong>
+
+                  <span>
+                    Total hops
+                  </span>
+                </div>
+
+                <div className="stat">
+                  <strong>
+                    {user.big_pond_energy}
+                  </strong>
+
+                  <span>
+                    Big Pond Energy
+                  </span>
+                </div>
+
+                <div className="stat">
+                  <strong>
+                    {formatAtomic(
+                      user.total_toby_atomic,
+                    )}
+                  </strong>
+
+                  <span>TOBY</span>
+                </div>
               </div>
 
-              <div className="stat">
-                <strong>
-                  {user.total_hops}
-                </strong>
-
-                <span>Total hops</span>
-              </div>
-
-              <div className="stat">
-                <strong>
-                  {user.big_pond_energy}
-                </strong>
-
-                <span>
-                  Big Pond Energy
-                </span>
-              </div>
-
-              <div className="stat">
-                <strong>
-                  {formatAtomic(
-                    user.total_toby_atomic,
-                  )}
-                </strong>
-
-                <span>TOBY</span>
-              </div>
-            </div>
+              <button
+                type="button"
+                className="secondary sign-out-button"
+                onClick={
+                  logoutWallet
+                }
+                disabled={busy}
+              >
+                SIGN OUT WALLET
+              </button>
+            </>
           )}
         </section>
       )}
@@ -2035,6 +2853,7 @@ export function TobyHopApp() {
         <div
           className="error-card"
           role="alert"
+          aria-live="assertive"
         >
           <span>{error}</span>
 
@@ -2050,7 +2869,10 @@ export function TobyHopApp() {
         </div>
       )}
 
-      <nav className="nav">
+      <nav
+        className="nav"
+        aria-label="Toby Hop navigation"
+      >
         <button
           type="button"
           className={
@@ -2062,6 +2884,10 @@ export function TobyHopApp() {
             setView('hop')
           }
         >
+          <span aria-hidden="true">
+            🐸
+          </span>
+
           Hop
         </button>
 
@@ -2076,6 +2902,10 @@ export function TobyHopApp() {
             setView('leaders')
           }
         >
+          <span aria-hidden="true">
+            🏆
+          </span>
+
           Leaders
         </button>
 
@@ -2090,29 +2920,57 @@ export function TobyHopApp() {
             setView('me')
           }
         >
+          <span aria-hidden="true">
+            ◉
+          </span>
+
           Me
         </button>
       </nav>
 
       {receipt && (
-        <div className="success">
+        <div
+          className="success"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Hop complete"
+        >
           <div className="success-card">
+            <div
+              className="success-frog"
+              aria-hidden="true"
+            >
+              🐸
+            </div>
+
             <div className="success-eyebrow">
               HOP COMPLETE
             </div>
 
             <div className="energy">
-              ONE BIG POND ENERGY
+              +1 BIG POND ENERGY
             </div>
 
             <div className="success-summary">
-              {receipt.tobyDisplay}{' '}
-              TOBY
+              <strong>
+                {receipt.tobyDisplay}{' '}
+                TOBY
+              </strong>
 
-              <span>·</span>
+              <span>
+                {receipt.streak} day
+                streak
+              </span>
 
-              {receipt.streak} day
-              streak
+              {receipt.dailyPosition && (
+                <span>
+                  Hopper #
+                  {
+                    receipt.dailyPosition
+                  }{' '}
+                  today
+                </span>
+              )}
             </div>
 
             <div className="success-actions">
