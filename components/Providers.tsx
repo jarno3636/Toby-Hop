@@ -7,18 +7,45 @@ import {
 import {
   WagmiProvider,
   createConfig,
+  createStorage,
+  cookieStorage,
   http,
 } from 'wagmi';
 import { base } from 'wagmi/chains';
+import {
+  baseAccount,
+  injected,
+} from 'wagmi/connectors';
 import { farcasterMiniApp } from '@farcaster/miniapp-wagmi-connector';
 import { useState } from 'react';
 
-const wagmiConfig = createConfig({
+export const wagmiConfig = createConfig({
   chains: [base],
 
   connectors: [
+    /*
+      Works inside the Farcaster Mini App host.
+    */
     farcasterMiniApp(),
+
+    /*
+      Works in Base App, Safari, Chrome and standard browsers.
+    */
+    baseAccount({
+      appName: 'Toby Hop',
+      appLogoUrl:
+        `${process.env.NEXT_PUBLIC_APP_URL}/icon.png`,
+    }),
+
+    /*
+      Supports wallets injected into the browser.
+    */
+    injected(),
   ],
+
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
 
   transports: {
     [base.id]: http(
@@ -27,14 +54,8 @@ const wagmiConfig = createConfig({
     ),
   },
 
+  multiInjectedProviderDiscovery: true,
   ssr: true,
-
-  /*
-    Prevent Wagmi from scanning for browser extension wallets.
-    Inside Farcaster/Base App, the Mini App connector should control
-    the wallet connection.
-  */
-  multiInjectedProviderDiscovery: false,
 });
 
 export function Providers({
@@ -43,7 +64,15 @@ export function Providers({
   children: React.ReactNode;
 }) {
   const [queryClient] = useState(
-    () => new QueryClient(),
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
   );
 
   return (
