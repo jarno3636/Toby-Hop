@@ -1,41 +1,50 @@
 import { NextResponse } from 'next/server';
 
-import { requireFarcasterUser } from '@/lib/auth/require-farcaster-user';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import type { LeaderboardKind } from '@/lib/types';
 
-const VALID_KINDS = new Set([
-  'streak',
-  'hops',
-  'toby',
-]);
+const VALID_KINDS =
+  new Set<LeaderboardKind>([
+    'streak',
+    'hops',
+    'toby',
+  ]);
 
-export async function GET(request: Request) {
+export async function GET(
+  request: Request,
+) {
   try {
-    await requireFarcasterUser(request);
+    const url =
+      new URL(request.url);
 
-    const url = new URL(request.url);
-    const kind = url.searchParams.get('kind');
+    const requestedKind =
+      url.searchParams.get(
+        'kind',
+      );
 
-    if (!kind || !VALID_KINDS.has(kind)) {
-      return NextResponse.json(
+    const kind:
+      LeaderboardKind =
+      requestedKind &&
+      VALID_KINDS.has(
+        requestedKind as LeaderboardKind,
+      )
+        ? (requestedKind as LeaderboardKind)
+        : 'streak';
+
+    const db =
+      supabaseAdmin();
+
+    const {
+      data,
+      error,
+    } =
+      await db.rpc(
+        'toby_hop_leaderboard',
         {
-          error: 'Invalid leaderboard type.',
-        },
-        {
-          status: 400,
+          p_kind: kind,
+          p_limit: 100,
         },
       );
-    }
-
-    const db = supabaseAdmin();
-
-    const { data, error } = await db.rpc(
-      'toby_hop_leaderboard',
-      {
-        p_kind: kind,
-        p_limit: 100,
-      },
-    );
 
     if (error) {
       console.error(
@@ -45,7 +54,8 @@ export async function GET(request: Request) {
 
       return NextResponse.json(
         {
-          error: error.message,
+          error:
+            'Unable to load the leaderboard.',
         },
         {
           status: 500,
@@ -53,7 +63,17 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json(
+      Array.isArray(data)
+        ? data
+        : [],
+      {
+        headers: {
+          'Cache-Control':
+            'public, s-maxage=15, stale-while-revalidate=45',
+        },
+      },
+    );
   } catch (cause) {
     console.error(
       'Leaderboard route error:',
@@ -68,7 +88,7 @@ export async function GET(request: Request) {
             : 'Unable to load leaderboard.',
       },
       {
-        status: 401,
+        status: 500,
       },
     );
   }
