@@ -7,45 +7,23 @@ import {
 import {
   WagmiProvider,
   createConfig,
-  createStorage,
-  cookieStorage,
   http,
 } from 'wagmi';
 import { base } from 'wagmi/chains';
-import {
-  baseAccount,
-  injected,
-} from 'wagmi/connectors';
+import { injected } from 'wagmi/connectors';
 import { farcasterMiniApp } from '@farcaster/miniapp-wagmi-connector';
-import { useState } from 'react';
+import {
+  useState,
+  type ReactNode,
+} from 'react';
 
-export const wagmiConfig = createConfig({
+const config = createConfig({
   chains: [base],
 
   connectors: [
-    /*
-      Works inside the Farcaster Mini App host.
-    */
     farcasterMiniApp(),
-
-    /*
-      Works in Base App, Safari, Chrome and standard browsers.
-    */
-    baseAccount({
-      appName: 'Toby Hop',
-      appLogoUrl:
-        `${process.env.NEXT_PUBLIC_APP_URL}/icon.png`,
-    }),
-
-    /*
-      Supports wallets injected into the browser.
-    */
     injected(),
   ],
-
-  storage: createStorage({
-    storage: cookieStorage,
-  }),
 
   transports: {
     [base.id]: http(
@@ -54,33 +32,25 @@ export const wagmiConfig = createConfig({
     ),
   },
 
-  multiInjectedProviderDiscovery: true,
   ssr: true,
 });
 
+type ProvidersProps = {
+  children: ReactNode;
+};
+
 export function Providers({
   children,
-}: {
-  children: React.ReactNode;
-}) {
+}: ProvidersProps) {
   const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            refetchOnWindowFocus: false,
-          },
-        },
-      }),
+    () => new QueryClient(),
   );
 
   return (
-    <WagmiProvider
-      config={wagmiConfig}
-      reconnectOnMount
-    >
-      <QueryClientProvider client={queryClient}>
+    <WagmiProvider config={config}>
+      <QueryClientProvider
+        client={queryClient}
+      >
         {children}
       </QueryClientProvider>
     </WagmiProvider>
