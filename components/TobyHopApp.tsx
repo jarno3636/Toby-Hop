@@ -1,10 +1,16 @@
 'use client';
 
 import { sdk } from '@farcaster/miniapp-sdk';
+import { createSiweMessage } from 'viem/siwe';
+import { base } from 'wagmi/chains';
 import {
   useAccount,
   useConnect,
+  useDisconnect,
+  usePublicClient,
   useSendTransaction,
+  useSignMessage,
+  useSwitchChain,
   useWriteContract,
 } from 'wagmi';
 import {
@@ -16,6 +22,7 @@ import {
 
 import {
   erc20Abi,
+  HOP_USDC_ATOMIC,
   USDC_ADDRESS,
 } from '@/lib/contracts';
 import {
@@ -38,28 +45,53 @@ type View = 'hop' | 'leaders' | 'me';
 type HopState =
   | 'idle'
   | 'connecting'
+  | 'signing-in'
   | 'quoting'
   | 'approving'
   | 'swapping'
   | 'verifying';
 
 type MiniAppUser = {
+  fid?: number;
   username?: string;
   displayName?: string;
   pfpUrl?: string;
 };
 
+type SessionResponse = {
+  authenticated: boolean;
+  address?: `0x${string}`;
+  user?: Partial<HopUser> & {
+    id?: string;
+    wallet_address?: string | null;
+  };
+  error?: string;
+};
+
+type VerifyAuthResponse = {
+  authenticated: boolean;
+  address: `0x${string}`;
+  user?: Partial<HopUser> & {
+    id?: string;
+    wallet_address?: string | null;
+  };
+  error?: string;
+};
+
 type QuoteResponse = {
   allowanceTarget: `0x${string}`;
-
+  buyAmount: string;
   transaction: {
     to: `0x${string}`;
     data: `0x${string}`;
     value?: string;
     gas?: string;
   };
+};
 
-  buyAmount: string;
+type LeaderRowWithWallet = LeaderRow & {
+  id?: string;
+  wallet_address?: string | null;
 };
 
 const fallbackPfp =
@@ -106,6 +138,89 @@ const emptyUser: HopUser = {
   rank: null,
 };
 
+function normalizeUser(
+  value?: SessionResponse['user'],
+  farcasterUser?: MiniAppUser | null,
+): HopUser {
+  return {
+    fid:
+      typeof value?.fid === 'number'
+        ? value.fid
+        : farcasterUser?.fid ?? 0,
+
+    username:
+      value?.username ??
+      farcasterUser?.username ??
+      null,
+
+    display_name:
+      value?.display_name ??
+      farcasterUser?.displayName ??
+      'Hopper',
+
+    pfp_url:
+      value?.pfp_url ??
+      farcasterUser?.pfpUrl ??
+      null,
+
+    current_title:
+      value?.current_title ??
+      'First Hopper',
+
+    total_hops:
+      Number(value?.total_hops ?? 0),
+
+    current_streak:
+      Number(value?.current_streak ?? 0),
+
+    longest_streak:
+      Number(value?.longest_streak ?? 0),
+
+    big_pond_energy:
+      Number(value?.big_pond_energy ?? 0),
+
+    total_toby_atomic:
+      String(value?.total_toby_atomic ?? '0'),
+
+    total_usdc_atomic:
+      String(value?.total_usdc_atomic ?? '0'),
+
+    first_hop_at:
+      value?.first_hop_at ?? null,
+
+    last_hop_at:
+      value?.last_hop_at ?? null,
+
+    today_hopped:
+      Boolean(value?.today_hopped),
+
+    rank:
+      value?.rank == null
+        ? null
+        : Number(value.rank),
+  };
+}
+
+function parseApiError(
+  raw: string,
+  fallback: string,
+): string {
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: string;
+      message?: string;
+    };
+
+    return (
+      parsed.error ||
+      parsed.message ||
+      fallback
+    );
+  } catch {
+    return raw || fallback;
+  }
+}
+
 function getErrorMessage(
   cause: unknown,
 ): string {
@@ -113,21 +228,18 @@ function getErrorMessage(
     return 'The pond could not complete this hop.';
   }
 
-  const message = cause.message.toLowerCase();
+  const originalMessage =
+    cause.message || '';
 
-  if (
-    message.includes('undefined is not an object') ||
-    message.includes('cannot read properties of undefined')
-  ) {
-    return 'The host did not provide a Farcaster profile. Reopen Toby Hop inside Farcaster.';
-  }
+  const message =
+    originalMessage.toLowerCase();
 
   if (
     message.includes('user rejected') ||
     message.includes('user denied') ||
     message.includes('rejected the request')
   ) {
-    return 'The hop was cancelled.';
+    return 'The request was cancelled.';
   }
 
   if (
@@ -141,62 +253,103 @@ function getErrorMessage(
     message.includes('already complete') ||
     message.includes('already hopped')
   ) {
-    return 'You already completed todays official hop.';
+    return 'You already completed today’s official hop.';
   }
 
   if (
-    message.includes('authorization') ||
-    message.includes('quick auth') ||
-    message.includes('unauthorized')
+    message.includes('nonce') ||
+    message.includes('signature verification')
   ) {
-    return 'Farcaster authentication is unavailable in this browser session.';
+    return 'Your sign-in request expired. Please sign in again.';
+  }
+
+  if (
+    message.includes('wallet authentication required') ||
+    message.includes('unauthorized') ||
+    message.includes('session')
+  ) {
+    return 'Connect and sign in with your Base wallet to continue.';
+  }
+
+  if (
+    message.includes('wrong chain') ||
+    message.includes('chain mismatch') ||
+    message.includes('requires base')
+  ) {
+    return 'Switch your wallet to Base and try again.';
   }
 
   if (
     message.includes('connector') ||
     message.includes('provider')
   ) {
-    return 'The Base wallet could not connect. Close and reopen Toby Hop and try again.';
+    return 'The Base wallet could not connect. Close and reopen Toby Hop, then try again.';
   }
 
-  return cause.message;
+  if (
+    message.includes(
+      'usdc and toby contract addresses must be configured',
+    )
+  ) {
+    return 'The Toby Hop token configuration is incomplete.';
+  }
+
+  return originalMessage;
 }
 
-async function getSafeMiniAppUser(): Promise<
-  MiniAppUser | null
-> {
+function shortenAddress(
+  address?: string | null,
+): string {
+  if (!address) {
+    return 'Hopper';
+  }
+
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+async function getSafeMiniAppContext(): Promise<{
+  user: MiniAppUser | null;
+  added: boolean;
+}> {
   try {
-    /*
-      Promise.resolve supports SDK versions where context is
-      either a promise-like value or a resolved object.
-    */
-    const context = await Promise.resolve(
-      sdk.context,
-    );
+    const context =
+      await Promise.resolve(sdk.context);
 
     if (
       !context ||
       typeof context !== 'object'
     ) {
-      return null;
+      return {
+        user: null,
+        added: false,
+      };
     }
 
-    const possibleUser = (
+    const typedContext =
       context as {
         user?: MiniAppUser;
-      }
-    ).user;
+        client?: {
+          added?: boolean;
+        };
+      };
 
-    if (
-      !possibleUser ||
-      typeof possibleUser !== 'object'
-    ) {
-      return null;
-    }
+    return {
+      user:
+        typedContext.user &&
+        typeof typedContext.user === 'object'
+          ? typedContext.user
+          : null,
 
-    return possibleUser;
+      added:
+        Boolean(
+          typedContext.client?.added,
+        ),
+    };
   } catch {
-    return null;
+    return {
+      user: null,
+      added: false,
+    };
   }
 }
 
@@ -205,8 +358,6 @@ function particleSymbol(
 ): string {
   switch (type) {
     case 'drop':
-      return '';
-
     case 'firefly':
       return '';
 
@@ -228,8 +379,27 @@ export function TobyHopApp() {
   const [user, setUser] =
     useState<HopUser>(emptyUser);
 
-  const [hasFarcasterUser, setHasFarcasterUser] =
+  const [authenticated, setAuthenticated] =
     useState(false);
+
+  const [
+    authenticatedAddress,
+    setAuthenticatedAddress,
+  ] = useState<`0x${string}` | null>(
+    null,
+  );
+
+  const [
+    farcasterUser,
+    setFarcasterUser,
+  ] = useState<MiniAppUser | null>(
+    null,
+  );
+
+  const [
+    miniAppAdded,
+    setMiniAppAdded,
+  ] = useState(false);
 
   const [loading, setLoading] =
     useState(true);
@@ -247,7 +417,10 @@ export function TobyHopApp() {
     useState<LeaderboardKind>('streak');
 
   const [leaders, setLeaders] =
-    useState<LeaderRow[]>([]);
+    useState<LeaderRowWithWallet[]>([]);
+
+  const [leaderLoading, setLeaderLoading] =
+    useState(false);
 
   const todaysPond = useMemo(
     () => getTodaysPond(),
@@ -265,16 +438,23 @@ export function TobyHopApp() {
           todaysPond.particleCount,
       },
       (_, index) => ({
-        id: `${todaysPond.particle}-${index}`,
-        type: todaysPond.particle!,
+        id:
+          `${todaysPond.particle}-${index}`,
+
+        type:
+          todaysPond.particle!,
+
         left:
           4 +
           ((index * 37 + 11) % 92),
+
         delay:
           ((index * 23) % 31) / 10,
+
         duration:
           3.4 +
           ((index * 17) % 25) / 10,
+
         scale:
           0.65 +
           ((index * 13) % 9) / 10,
@@ -284,13 +464,27 @@ export function TobyHopApp() {
 
   const {
     address,
+    chainId,
     isConnected,
   } = useAccount();
 
   const {
     connectors,
     connectAsync,
+    isPending: connectPending,
   } = useConnect();
+
+  const {
+    disconnect,
+  } = useDisconnect();
+
+  const {
+    signMessageAsync,
+  } = useSignMessage();
+
+  const {
+    switchChainAsync,
+  } = useSwitchChain();
 
   const {
     writeContractAsync,
@@ -300,81 +494,165 @@ export function TobyHopApp() {
     sendTransactionAsync,
   } = useSendTransaction();
 
+  const publicClient =
+    usePublicClient({
+      chainId: base.id,
+    });
+
   const busy =
     hopState !== 'idle';
 
   const displayName =
     user.display_name ||
     user.username ||
-    'Hopper';
+    shortenAddress(
+      authenticatedAddress,
+    );
 
-  const authenticatedFetch = useCallback(
-    async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
-      return sdk.quickAuth.fetch(
-        input,
-        init,
-      );
-    },
-    [],
-  );
+  const canCast =
+    Boolean(farcasterUser);
 
-  const loadUser = useCallback(async () => {
-    const miniAppUser =
-      await getSafeMiniAppUser();
+  const walletMatchesSession =
+    Boolean(
+      address &&
+      authenticatedAddress &&
+      address.toLowerCase() ===
+        authenticatedAddress.toLowerCase(),
+    );
 
-    if (!miniAppUser) {
-      /*
-        Do not crash when opened in Safari or a Base
-        session that does not expose Farcaster context.
-      */
-      setHasFarcasterUser(false);
-      setUser(emptyUser);
-      return;
-    }
+  const loadWalletSession =
+    useCallback(
+      async (
+        currentFarcasterUser?: MiniAppUser | null,
+      ) => {
+        const response =
+          await fetch(
+            '/api/auth/session',
+            {
+              method: 'GET',
+              credentials: 'include',
+              cache: 'no-store',
+            },
+          );
 
-    setHasFarcasterUser(true);
+        const result =
+          (await response.json()) as SessionResponse;
 
-    const response =
-      await authenticatedFetch(
-        '/api/me',
-        {
-          method: 'POST',
+        if (
+          !response.ok ||
+          !result.authenticated ||
+          !result.address
+        ) {
+          setAuthenticated(false);
+          setAuthenticatedAddress(null);
 
-          headers: {
-            'content-type':
-              'application/json',
-          },
+          setUser(
+            normalizeUser(
+              undefined,
+              currentFarcasterUser ??
+                farcasterUser,
+            ),
+          );
 
-          body: JSON.stringify({
+          return false;
+        }
+
+        setAuthenticated(true);
+
+        setAuthenticatedAddress(
+          result.address,
+        );
+
+        setUser(
+          normalizeUser(
+            result.user,
+            currentFarcasterUser ??
+              farcasterUser,
+          ),
+        );
+
+        return true;
+      },
+      [farcasterUser],
+    );
+
+  const syncFarcasterProfile =
+    useCallback(
+      async (
+        miniUser: MiniAppUser,
+      ) => {
+        /*
+          Profile sync is optional. Wallet SIWE remains the
+          authentication source of truth.
+        */
+        try {
+          const response =
+            await sdk.quickAuth.fetch(
+              '/api/me',
+              {
+                method: 'POST',
+                headers: {
+                  'content-type':
+                    'application/json',
+                },
+                body: JSON.stringify({
+                  username:
+                    miniUser.username ??
+                    null,
+
+                  displayName:
+                    miniUser.displayName ??
+                    null,
+
+                  pfpUrl:
+                    miniUser.pfpUrl ??
+                    null,
+
+                  walletAddress:
+                    authenticatedAddress ??
+                    address ??
+                    null,
+                }),
+              },
+            );
+
+          if (!response.ok) {
+            return;
+          }
+
+          const profile =
+            (await response.json()) as Partial<HopUser>;
+
+          setUser((previous) => ({
+            ...previous,
+
             username:
-              miniAppUser.username ??
-              null,
+              profile.username ??
+              miniUser.username ??
+              previous.username,
 
-            displayName:
-              miniAppUser.displayName ??
-              null,
+            display_name:
+              profile.display_name ??
+              miniUser.displayName ??
+              previous.display_name,
 
-            pfpUrl:
-              miniAppUser.pfpUrl ??
-              null,
-          }),
-        },
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        await response.text(),
-      );
-    }
-
-    const profile =
-      (await response.json()) as HopUser;
-
-    setUser(profile);
-  }, [authenticatedFetch]);
+            pfp_url:
+              profile.pfp_url ??
+              miniUser.pfpUrl ??
+              previous.pfp_url,
+          }));
+        } catch {
+          /*
+            Toby Hop still works if the host does not support
+            Farcaster Quick Auth.
+          */
+        }
+      },
+      [
+        address,
+        authenticatedAddress,
+      ],
+    );
 
   useEffect(() => {
     let active = true;
@@ -383,17 +661,32 @@ export function TobyHopApp() {
       try {
         setError('');
 
-        /*
-          Tell the host that the page has rendered before
-          waiting on profile network requests.
-        */
         try {
           await sdk.actions.ready();
         } catch {
-          // Normal browser sessions may not support this.
+          /*
+            Standard web browsers do not need this.
+          */
         }
 
-        await loadUser();
+        const context =
+          await getSafeMiniAppContext();
+
+        if (!active) {
+          return;
+        }
+
+        setFarcasterUser(
+          context.user,
+        );
+
+        setMiniAppAdded(
+          context.added,
+        );
+
+        await loadWalletSession(
+          context.user,
+        );
       } catch (cause) {
         if (active) {
           setError(
@@ -412,12 +705,52 @@ export function TobyHopApp() {
     return () => {
       active = false;
     };
-  }, [loadUser]);
+  }, [loadWalletSession]);
+
+  useEffect(() => {
+    if (
+      authenticated &&
+      farcasterUser
+    ) {
+      void syncFarcasterProfile(
+        farcasterUser,
+      );
+    }
+  }, [
+    authenticated,
+    farcasterUser,
+    syncFarcasterProfile,
+  ]);
+
+  useEffect(() => {
+    if (
+      !authenticated ||
+      !authenticatedAddress ||
+      !address
+    ) {
+      return;
+    }
+
+    if (
+      address.toLowerCase() !==
+      authenticatedAddress.toLowerCase()
+    ) {
+      setAuthenticated(false);
+
+      setError(
+        'The connected wallet changed. Sign in again to protect your pond record.',
+      );
+    }
+  }, [
+    address,
+    authenticated,
+    authenticatedAddress,
+  ]);
 
   useEffect(() => {
     if (
       view !== 'leaders' ||
-      !hasFarcasterUser
+      !authenticated
     ) {
       return;
     }
@@ -425,22 +758,37 @@ export function TobyHopApp() {
     let active = true;
 
     async function loadLeaderboard() {
+      setLeaderLoading(true);
+
       try {
         setError('');
 
         const response =
-          await authenticatedFetch(
+          await fetch(
             `/api/leaderboard?kind=${leaderKind}`,
+            {
+              method: 'GET',
+              credentials: 'include',
+              cache: 'no-store',
+            },
           );
+
+        const raw =
+          await response.text();
 
         if (!response.ok) {
           throw new Error(
-            await response.text(),
+            parseApiError(
+              raw,
+              'Unable to load the leaderboard.',
+            ),
           );
         }
 
         const rows =
-          (await response.json()) as LeaderRow[];
+          JSON.parse(
+            raw,
+          ) as LeaderRowWithWallet[];
 
         if (active) {
           setLeaders(rows);
@@ -451,6 +799,10 @@ export function TobyHopApp() {
             getErrorMessage(cause),
           );
         }
+      } finally {
+        if (active) {
+          setLeaderLoading(false);
+        }
       }
     }
 
@@ -460,8 +812,7 @@ export function TobyHopApp() {
       active = false;
     };
   }, [
-    authenticatedFetch,
-    hasFarcasterUser,
+    authenticated,
     leaderKind,
     view,
   ]);
@@ -480,8 +831,80 @@ export function TobyHopApp() {
           .impactOccurred('medium');
       }
     } catch {
-      // Haptics are optional.
+      /*
+        Haptics are optional.
+      */
     }
+  }
+
+  function chooseConnector() {
+    if (!connectors.length) {
+      return null;
+    }
+
+    const wantsFarcaster =
+      Boolean(farcasterUser);
+
+    if (wantsFarcaster) {
+      const farcasterConnector =
+        connectors.find(
+          (connector) => {
+            const searchable =
+              `${connector.id} ${connector.name}`
+                .toLowerCase();
+
+            return (
+              searchable.includes(
+                'farcaster',
+              ) ||
+              searchable.includes(
+                'miniapp',
+              )
+            );
+          },
+        );
+
+      if (farcasterConnector) {
+        return farcasterConnector;
+      }
+    }
+
+    const baseConnector =
+      connectors.find(
+        (connector) => {
+          const searchable =
+            `${connector.id} ${connector.name}`
+              .toLowerCase();
+
+          return (
+            searchable.includes(
+              'base',
+            ) ||
+            searchable.includes(
+              'coinbase',
+            )
+          );
+        },
+      );
+
+    if (baseConnector) {
+      return baseConnector;
+    }
+
+    const injectedConnector =
+      connectors.find(
+        (connector) =>
+          connector.id ===
+            'injected' ||
+          connector.name
+            .toLowerCase()
+            .includes('injected'),
+      );
+
+    return (
+      injectedConnector ??
+      connectors[0]
+    );
   }
 
   async function getConnectedWallet(): Promise<
@@ -497,17 +920,18 @@ export function TobyHopApp() {
     setHopState('connecting');
 
     const connector =
-      connectors[0];
+      chooseConnector();
 
     if (!connector) {
       throw new Error(
-        'Wallet connector is unavailable.',
+        'No compatible Base wallet connector was found.',
       );
     }
 
     const connection =
       await connectAsync({
         connector,
+        chainId: base.id,
       });
 
     const wallet =
@@ -522,6 +946,177 @@ export function TobyHopApp() {
     return wallet;
   }
 
+  async function ensureBaseChain() {
+    if (chainId === base.id) {
+      return;
+    }
+
+    await switchChainAsync({
+      chainId: base.id,
+    });
+  }
+
+  async function signInWithWallet() {
+    setError('');
+
+    try {
+      const wallet =
+        await getConnectedWallet();
+
+      setHopState('signing-in');
+
+      await ensureBaseChain();
+
+      const nonceResponse =
+        await fetch(
+          '/api/auth/nonce',
+          {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+          },
+        );
+
+      const nonceRaw =
+        await nonceResponse.text();
+
+      if (!nonceResponse.ok) {
+        throw new Error(
+          parseApiError(
+            nonceRaw,
+            'Unable to create a sign-in request.',
+          ),
+        );
+      }
+
+      const {
+        nonce,
+      } = JSON.parse(
+        nonceRaw,
+      ) as {
+        nonce: string;
+      };
+
+      const message =
+        createSiweMessage({
+          address: wallet,
+          chainId: base.id,
+          domain:
+            window.location.host,
+          uri:
+            window.location.origin,
+          version: '1',
+          nonce,
+          statement:
+            'Sign in to Toby Hop and protect your daily pond record.',
+          issuedAt:
+            new Date(),
+        });
+
+      const signature =
+        await signMessageAsync({
+          message,
+        });
+
+      const verifyResponse =
+        await fetch(
+          '/api/auth/verify',
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'content-type':
+                'application/json',
+            },
+            body: JSON.stringify({
+              message,
+              signature,
+            }),
+          },
+        );
+
+      const verifyRaw =
+        await verifyResponse.text();
+
+      if (!verifyResponse.ok) {
+        throw new Error(
+          parseApiError(
+            verifyRaw,
+            'Wallet authentication failed.',
+          ),
+        );
+      }
+
+      const result =
+        JSON.parse(
+          verifyRaw,
+        ) as VerifyAuthResponse;
+
+      if (
+        !result.authenticated ||
+        !result.address
+      ) {
+        throw new Error(
+          result.error ||
+            'Wallet authentication failed.',
+        );
+      }
+
+      setAuthenticated(true);
+
+      setAuthenticatedAddress(
+        result.address,
+      );
+
+      setUser(
+        normalizeUser(
+          result.user,
+          farcasterUser,
+        ),
+      );
+
+      if (farcasterUser) {
+        await syncFarcasterProfile(
+          farcasterUser,
+        );
+      }
+
+      return result.address;
+    } catch (cause) {
+      setError(
+        getErrorMessage(cause),
+      );
+
+      return null;
+    } finally {
+      setHopState('idle');
+    }
+  }
+
+  async function logoutWallet() {
+    try {
+      await fetch(
+        '/api/auth/logout',
+        {
+          method: 'POST',
+          credentials: 'include',
+        },
+      );
+    } finally {
+      setAuthenticated(false);
+      setAuthenticatedAddress(null);
+
+      setUser(
+        normalizeUser(
+          undefined,
+          farcasterUser,
+        ),
+      );
+
+      disconnect();
+    }
+  }
+
   async function performHop() {
     if (
       busy ||
@@ -532,80 +1127,132 @@ export function TobyHopApp() {
 
     setError('');
 
-    if (!hasFarcasterUser) {
-      setError(
-        'Open Toby Hop inside Farcaster to make an authenticated hop. Base wallet authentication will be added separately.',
-      );
-
-      return;
-    }
-
     await provideTapFeedback();
 
     try {
-      const wallet =
-        await getConnectedWallet();
+      let wallet =
+        address ?? null;
+
+      if (
+        !authenticated ||
+        !authenticatedAddress ||
+        !walletMatchesSession
+      ) {
+        wallet =
+          await signInWithWallet();
+
+        if (!wallet) {
+          return;
+        }
+      }
+
+      if (!wallet) {
+        throw new Error(
+          'A connected Base wallet is required.',
+        );
+      }
+
+      await ensureBaseChain();
 
       setHopState('quoting');
 
       const quoteResponse =
-        await authenticatedFetch(
+        await fetch(
           `/api/hop/quote?wallet=${wallet}`,
+          {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+          },
         );
+
+      const quoteRaw =
+        await quoteResponse.text();
 
       if (!quoteResponse.ok) {
         throw new Error(
-          await quoteResponse.text(),
+          parseApiError(
+            quoteRaw,
+            'Unable to prepare today’s hop.',
+          ),
         );
       }
 
       const quote =
-        (await quoteResponse.json()) as QuoteResponse;
+        JSON.parse(
+          quoteRaw,
+        ) as QuoteResponse;
 
       setHopState('approving');
 
-      await writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: erc20Abi,
-        functionName: 'approve',
-        args: [
-          quote.allowanceTarget,
-          10_000n,
-        ],
-      });
+      const approvalHash =
+        await writeContractAsync({
+          address: USDC_ADDRESS,
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [
+            quote.allowanceTarget,
+            HOP_USDC_ATOMIC,
+          ],
+          chainId: base.id,
+        });
+
+      if (!publicClient) {
+        throw new Error(
+          'The Base network client is unavailable.',
+        );
+      }
+
+      const approvalReceipt =
+        await publicClient
+          .waitForTransactionReceipt({
+            hash: approvalHash,
+            confirmations: 1,
+            timeout: 120_000,
+          });
+
+      if (
+        approvalReceipt.status !==
+        'success'
+      ) {
+        throw new Error(
+          'The USDC approval transaction failed.',
+        );
+      }
 
       setHopState('swapping');
 
       const transactionHash =
         await sendTransactionAsync({
-          to: quote.transaction.to,
-          data: quote.transaction.data,
-
+          to:
+            quote.transaction.to,
+          data:
+            quote.transaction.data,
           value: BigInt(
             quote.transaction.value ??
               '0',
           ),
-
-          gas: quote.transaction.gas
-            ? BigInt(
-                quote.transaction.gas,
-              )
-            : undefined,
+          gas:
+            quote.transaction.gas
+              ? BigInt(
+                  quote.transaction.gas,
+                )
+              : undefined,
+          chainId: base.id,
         });
 
       setHopState('verifying');
 
       const verificationResponse =
-        await authenticatedFetch(
+        await fetch(
           '/api/hop/verify',
           {
             method: 'POST',
-
+            credentials: 'include',
             headers: {
               'content-type':
                 'application/json',
             },
-
             body: JSON.stringify({
               txHash:
                 transactionHash,
@@ -616,16 +1263,24 @@ export function TobyHopApp() {
           },
         );
 
+      const verificationRaw =
+        await verificationResponse.text();
+
       if (
         !verificationResponse.ok
       ) {
         throw new Error(
-          await verificationResponse.text(),
+          parseApiError(
+            verificationRaw,
+            'Unable to verify the completed hop.',
+          ),
         );
       }
 
       const completedHop =
-        (await verificationResponse.json()) as HopReceipt;
+        JSON.parse(
+          verificationRaw,
+        ) as HopReceipt;
 
       setReceipt(completedHop);
 
@@ -669,35 +1324,25 @@ export function TobyHopApp() {
             'success',
           );
       } catch {
-        // Optional.
+        /*
+          Optional outside Mini App hosts.
+        */
       }
 
-      try {
-        const context =
-          await Promise.resolve(
-            sdk.context,
-          );
+      if (
+        farcasterUser &&
+        !miniAppAdded
+      ) {
+        try {
+          await sdk.actions
+            .addMiniApp();
 
-        if (
-          context &&
-          typeof context === 'object' &&
-          'client' in context
-        ) {
-          const client = (
-            context as {
-              client?: {
-                added?: boolean;
-              };
-            }
-          ).client;
-
-          if (!client?.added) {
-            await sdk.actions
-              .addMiniApp();
-          }
+          setMiniAppAdded(true);
+        } catch {
+          /*
+            The completed hop remains valid.
+          */
         }
-      } catch {
-        // The hop remains valid.
       }
     } catch (cause) {
       setError(
@@ -710,28 +1355,61 @@ export function TobyHopApp() {
             'error',
           );
       } catch {
-        // Optional.
+        /*
+          Optional outside Mini App hosts.
+        */
       }
     } finally {
       setHopState('idle');
     }
   }
 
-  async function castHop() {
+  async function shareHop() {
     if (!receipt) {
       return;
     }
 
-    try {
-      await sdk.actions.composeCast({
-        text: receipt.castText,
+    setError('');
 
-        embeds: [
-          process.env
-            .NEXT_PUBLIC_APP_URL ||
-            window.location.origin,
-        ],
-      });
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      window.location.origin;
+
+    if (canCast) {
+      try {
+        await sdk.actions.composeCast({
+          text:
+            receipt.castText,
+          embeds: [appUrl],
+        });
+
+        return;
+      } catch {
+        /*
+          Fall through to web share.
+        */
+      }
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Toby Hop',
+          text:
+            receipt.castText,
+          url: appUrl,
+        });
+
+        return;
+      }
+
+      await navigator.clipboard.writeText(
+        `${receipt.castText}\n\n${appUrl}`,
+      );
+
+      setError(
+        'Your hop message was copied.',
+      );
     } catch (cause) {
       setError(
         getErrorMessage(cause),
@@ -741,15 +1419,22 @@ export function TobyHopApp() {
 
   function getHopStatus(): string {
     if (user.today_hopped) {
-      return 'Todays hop is complete';
+      return 'Today’s hop is complete';
+    }
+
+    if (!authenticated) {
+      return 'Tap Toby to join the pond';
     }
 
     switch (hopState) {
       case 'connecting':
         return 'Connecting your wallet';
 
+      case 'signing-in':
+        return 'Protecting your pond record';
+
       case 'quoting':
-        return 'Finding todays route';
+        return 'Finding today’s route';
 
       case 'approving':
         return 'Approve one cent of USDC';
@@ -765,6 +1450,18 @@ export function TobyHopApp() {
     }
   }
 
+  function getHopSubtext(): string {
+    if (user.today_hopped) {
+      return 'One Big Pond Energy collected';
+    }
+
+    if (!authenticated) {
+      return 'Connect and sign in with a Base wallet';
+    }
+
+    return 'One cent USDC to TOBY';
+  }
+
   if (loading) {
     return (
       <main className="shell">
@@ -777,11 +1474,15 @@ export function TobyHopApp() {
 
   return (
     <main
-      className={`shell pond-theme-${todaysPond.id} ${
+      className={[
+        'shell',
+        `pond-theme-${todaysPond.id}`,
         todaysPond.goldenToby
           ? 'golden-toby-day'
-          : ''
-      }`}
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       <header className="topbar">
         <div>
@@ -796,11 +1497,24 @@ export function TobyHopApp() {
 
         {isConnected &&
           address && (
-            <div className="wallet-pill">
-              {address.slice(0, 5)}
-              {'…'}
-              {address.slice(-4)}
-            </div>
+            <button
+              type="button"
+              className="wallet-pill"
+              onClick={
+                authenticated
+                  ? logoutWallet
+                  : signInWithWallet
+              }
+              aria-label={
+                authenticated
+                  ? 'Sign out wallet'
+                  : 'Sign in wallet'
+              }
+            >
+              {shortenAddress(
+                address,
+              )}
+            </button>
           )}
       </header>
 
@@ -810,6 +1524,7 @@ export function TobyHopApp() {
             className="pfp"
             src={
               user.pfp_url ||
+              farcasterUser?.pfpUrl ||
               fallbackPfp
             }
             alt={`${displayName} profile`}
@@ -821,7 +1536,9 @@ export function TobyHopApp() {
             </div>
 
             <div className="profile-title">
-              {user.current_title}
+              {authenticated
+                ? user.current_title
+                : 'New to the Pond'}
             </div>
           </div>
 
@@ -836,6 +1553,43 @@ export function TobyHopApp() {
           </div>
         </section>
       )}
+
+      {!authenticated &&
+        view === 'hop' && (
+          <section className="empty-state-card">
+            <strong>
+              Join the pond
+            </strong>
+
+            <p>
+              Connect a Base wallet and
+              sign once to save your hops,
+              streak, Big Pond Energy and
+              leaderboard position.
+            </p>
+
+            <button
+              type="button"
+              className="primary"
+              onClick={
+                signInWithWallet
+              }
+              disabled={
+                busy ||
+                connectPending
+              }
+            >
+              {hopState ===
+              'signing-in'
+                ? 'SIGNING IN'
+                : hopState ===
+                    'connecting' ||
+                  connectPending
+                  ? 'CONNECTING'
+                  : 'CONNECT WALLET'}
+            </button>
+          </section>
+        )}
 
       {view === 'hop' && (
         <>
@@ -900,14 +1654,20 @@ export function TobyHopApp() {
               {particles.map(
                 (particle) => (
                   <span
-                    key={particle.id}
+                    key={
+                      particle.id
+                    }
                     className={`pond-particle particle-${particle.type}`}
                     style={{
-                      left: `${particle.left}%`,
+                      left:
+                        `${particle.left}%`,
+
                       animationDelay:
                         `${particle.delay}s`,
+
                       animationDuration:
                         `${particle.duration}s`,
+
                       transform:
                         `scale(${particle.scale})`,
                     }}
@@ -943,8 +1703,10 @@ export function TobyHopApp() {
               onClick={performHop}
               aria-label={
                 user.today_hopped
-                  ? 'Todays hop is complete'
-                  : 'Tap Toby to hop'
+                  ? 'Today’s hop is complete'
+                  : authenticated
+                    ? 'Tap Toby to hop'
+                    : 'Tap Toby to connect your wallet'
               }
             >
               <div
@@ -983,9 +1745,7 @@ export function TobyHopApp() {
               </strong>
 
               <span>
-                {user.today_hopped
-                  ? 'One Big Pond Energy collected'
-                  : 'One cent USDC to TOBY'}
+                {getHopSubtext()}
               </span>
             </div>
           </section>
@@ -1032,14 +1792,32 @@ export function TobyHopApp() {
             Pond leaders
           </h1>
 
-          {!hasFarcasterUser && (
+          {!authenticated && (
             <div className="empty-state-card">
-              Open Toby Hop inside Farcaster
-              to view verified pond leaders
+              <strong>
+                Join to view the pond
+              </strong>
+
+              <p>
+                Sign in with a Base wallet
+                to view verified streak,
+                hop and TOBY rankings.
+              </p>
+
+              <button
+                type="button"
+                className="primary"
+                onClick={
+                  signInWithWallet
+                }
+                disabled={busy}
+              >
+                CONNECT WALLET
+              </button>
             </div>
           )}
 
-          {hasFarcasterUser && (
+          {authenticated && (
             <>
               <div className="tabs">
                 {(
@@ -1053,12 +1831,15 @@ export function TobyHopApp() {
                     key={kind}
                     type="button"
                     className={
-                      leaderKind === kind
+                      leaderKind ===
+                      kind
                         ? 'active'
                         : ''
                     }
                     onClick={() =>
-                      setLeaderKind(kind)
+                      setLeaderKind(
+                        kind,
+                      )
                     }
                   >
                     {kind === 'toby'
@@ -1071,64 +1852,86 @@ export function TobyHopApp() {
                 ))}
               </div>
 
-              {leaders.map((row) => (
-                <div
-                  className="leader-row"
-                  key={row.fid}
-                >
-                  <div className="rank">
-                    #{row.rank}
-                  </div>
-
-                  <img
-                    src={
-                      row.pfp_url ||
-                      fallbackPfp
-                    }
-                    alt=""
-                  />
-
-                  <div>
-                    <div className="leader-name">
-                      {row.display_name ||
-                        row.username ||
-                        `FID ${row.fid}`}
-                    </div>
-
-                    <div className="leader-title">
-                      {row.current_title}
-                    </div>
-                  </div>
-
-                  <div className="leader-value">
-                    {leaderKind ===
-                    'streak'
-                      ? row.current_streak
-                      : leaderKind ===
-                          'hops'
-                        ? row.total_hops
-                        : formatAtomic(
-                            row.total_toby_atomic,
-                          )}
-
-                    <div className="leader-sub">
-                      {leaderKind ===
-                      'streak'
-                        ? 'days'
-                        : leaderKind ===
-                            'hops'
-                          ? 'hops'
-                          : 'TOBY'}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {!leaders.length && (
+              {leaderLoading && (
                 <div className="empty">
-                  No verified hops yet
+                  Reading the pond
                 </div>
               )}
+
+              {!leaderLoading &&
+                leaders.map(
+                  (row) => {
+                    const rowName =
+                      row.display_name ||
+                      row.username ||
+                      shortenAddress(
+                        row.wallet_address,
+                      );
+
+                    const rowKey =
+                      row.id ||
+                      row.wallet_address ||
+                      String(row.fid);
+
+                    return (
+                      <div
+                        className="leader-row"
+                        key={rowKey}
+                      >
+                        <div className="rank">
+                          #{row.rank}
+                        </div>
+
+                        <img
+                          src={
+                            row.pfp_url ||
+                            fallbackPfp
+                          }
+                          alt=""
+                        />
+
+                        <div>
+                          <div className="leader-name">
+                            {rowName}
+                          </div>
+
+                          <div className="leader-title">
+                            {row.current_title}
+                          </div>
+                        </div>
+
+                        <div className="leader-value">
+                          {leaderKind ===
+                          'streak'
+                            ? row.current_streak
+                            : leaderKind ===
+                                'hops'
+                              ? row.total_hops
+                              : formatAtomic(
+                                  row.total_toby_atomic,
+                                )}
+
+                          <div className="leader-sub">
+                            {leaderKind ===
+                            'streak'
+                              ? 'days'
+                              : leaderKind ===
+                                  'hops'
+                                ? 'hops'
+                                : 'TOBY'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  },
+                )}
+
+              {!leaderLoading &&
+                !leaders.length && (
+                  <div className="empty">
+                    No verified hops yet
+                  </div>
+                )}
             </>
           )}
         </section>
@@ -1140,59 +1943,91 @@ export function TobyHopApp() {
             Your pond record
           </h1>
 
-          <div className="stat-grid profile-stats">
-            <div className="stat">
+          {!authenticated && (
+            <div className="empty-state-card">
               <strong>
-                {user.current_streak}
+                Your record needs a wallet
               </strong>
-              <span>
-                Current streak
-              </span>
-            </div>
 
-            <div className="stat">
-              <strong>
-                {user.longest_streak}
-              </strong>
-              <span>
-                Best streak
-              </span>
-            </div>
+              <p>
+                Connect and sign in to save
+                your progress across devices.
+              </p>
 
-            <div className="stat">
-              <strong>
-                {user.rank
-                  ? `#${user.rank}`
-                  : '—'}
-              </strong>
-              <span>Pond rank</span>
+              <button
+                type="button"
+                className="primary"
+                onClick={
+                  signInWithWallet
+                }
+                disabled={busy}
+              >
+                CONNECT WALLET
+              </button>
             </div>
+          )}
 
-            <div className="stat">
-              <strong>
-                {user.total_hops}
-              </strong>
-              <span>Total hops</span>
-            </div>
+          {authenticated && (
+            <div className="stat-grid profile-stats">
+              <div className="stat">
+                <strong>
+                  {user.current_streak}
+                </strong>
 
-            <div className="stat">
-              <strong>
-                {user.big_pond_energy}
-              </strong>
-              <span>
-                Big Pond Energy
-              </span>
-            </div>
+                <span>
+                  Current streak
+                </span>
+              </div>
 
-            <div className="stat">
-              <strong>
-                {formatAtomic(
-                  user.total_toby_atomic,
-                )}
-              </strong>
-              <span>TOBY</span>
+              <div className="stat">
+                <strong>
+                  {user.longest_streak}
+                </strong>
+
+                <span>
+                  Best streak
+                </span>
+              </div>
+
+              <div className="stat">
+                <strong>
+                  {user.rank
+                    ? `#${user.rank}`
+                    : '—'}
+                </strong>
+
+                <span>Pond rank</span>
+              </div>
+
+              <div className="stat">
+                <strong>
+                  {user.total_hops}
+                </strong>
+
+                <span>Total hops</span>
+              </div>
+
+              <div className="stat">
+                <strong>
+                  {user.big_pond_energy}
+                </strong>
+
+                <span>
+                  Big Pond Energy
+                </span>
+              </div>
+
+              <div className="stat">
+                <strong>
+                  {formatAtomic(
+                    user.total_toby_atomic,
+                  )}
+                </strong>
+
+                <span>TOBY</span>
+              </div>
             </div>
-          </div>
+          )}
         </section>
       )}
 
@@ -1208,7 +2043,7 @@ export function TobyHopApp() {
             onClick={() =>
               setError('')
             }
-            aria-label="Dismiss error"
+            aria-label="Dismiss message"
           >
             ×
           </button>
@@ -1284,9 +2119,11 @@ export function TobyHopApp() {
               <button
                 type="button"
                 className="primary"
-                onClick={castHop}
+                onClick={shareHop}
               >
-                CAST MY HOP
+                {canCast
+                  ? 'CAST MY HOP'
+                  : 'SHARE MY HOP'}
               </button>
 
               <button
