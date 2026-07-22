@@ -1,73 +1,52 @@
-import { NextResponse } from 'next/server';
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjExMjExOTMsInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHhmNTYwMzNDMTkxYjY2NTA0QWQ0Q0Y4NzMyM0E3NzNGRDg2RGM1MGFkIn0",
+    "payload": "eyJkb21haW4iOiJ0b2J5aG9wLnZlcmNlbC5hcHAifQ",
+    "signature": "3DHaAZhcQmKfEHVttyxNMQm1Du0JO2jRdPdWNgZ/km8uciy4IZYe2kCazhF8fEITnaqZEQ9/4S35aoipWoOcBRw="
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Toby Hop",
+    "homeUrl": "https://tobyhop.vercel.app",
+    "iconUrl": "https://tobyhop.vercel.app/icon.png",
+    "splashImageUrl": "https://tobyhop.vercel.app/splash.png",
+    "splashBackgroundColor": "#071b21",
+    "webhookUrl": "https://tobyhop.vercel.app/api/webhook",
 
-export function GET() {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    "subtitle": "One hop every day",
+    "description": "Tap Toby each day to exchange 0.01 USDC for TOBY, earn Big Pond Energy, grow your streak, and climb the pond leaderboard.",
 
-  return NextResponse.json({
-    accountAssociation: {
-      header: process.env.ACCOUNT_ASSOCIATION_HEADER ?? '',
-      payload: process.env.ACCOUNT_ASSOCIATION_PAYLOAD ?? '',
-      signature: process.env.ACCOUNT_ASSOCIATION_SIGNATURE ?? '',
-    },
+    "primaryCategory": "games",
 
-    miniapp: {
-      version: '1',
+    "tags": [
+      "toby",
+      "base",
+      "daily",
+      "streak",
+      "leaderboard"
+    ],
 
-      name: 'Toby Hop',
+    "heroImageUrl": "https://tobyhop.vercel.app/hero.png",
+    "tagline": "One hop. Every day.",
 
-      homeUrl: appUrl,
+    "ogTitle": "Toby Hop",
+    "ogDescription": "Tap Toby, receive TOBY, and grow your daily pond streak.",
+    "ogImageUrl": "https://tobyhop.vercel.app/og.png",
 
-      iconUrl: `${appUrl}/icon.png`,
+    "requiredChains": [
+      "eip155:8453"
+    ],
 
-      splashImageUrl: `${appUrl}/splash.png`,
+    "requiredCapabilities": [
+      "wallet.getEthereumProvider",
+      "actions.ready",
+      "actions.addMiniApp",
+      "actions.composeCast",
+      "haptics.impactOccurred",
+      "haptics.notificationOccurred"
+    ],
 
-      splashBackgroundColor: '#071b21',
-
-      heroImageUrl: `${appUrl}/hero.png`,
-
-      webhookUrl: `${appUrl}/api/webhook`,
-
-      tagline: 'One hop. Every day.',
-
-      subtitle: 'Daily $TOBY Rewards',
-
-      description:
-        'Tap Toby once each day. Exchange $0.01 USDC for $TOBY, earn Big Pond Energy, build streaks, unlock titles, climb the global leaderboard, and share every hop on Farcaster.',
-
-      primaryCategory: 'games',
-
-      tags: [
-        'toby',
-        'base',
-        'farcaster',
-        'miniapp',
-        'crypto',
-        'daily',
-        'streak',
-        'leaderboard',
-        'rewards',
-        'gaming'
-      ],
-
-      requiredChains: [
-        'eip155:8453'
-      ],
-
-      requiredCapabilities: [
-        'wallet.getEthereumProvider',
-        'actions.composeCast',
-        'actions.addMiniApp',
-        'actions.ready',
-        'haptics.impactOccurred',
-        'haptics.notificationOccurred'
-      ],
-
-      ogTitle: 'Toby Hop',
-
-      ogDescription:
-        'One hop. Every day. Exchange one small drop for $TOBY and build your Big Pond Energy.',
-
-      ogImageUrl: `${appUrl}/og.png`
-    }
-  });
+    "canonicalDomain": "tobyhop.vercel.app",
+    "noindex": false
+  }
 }
