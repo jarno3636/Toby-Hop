@@ -2489,13 +2489,14 @@ export function TobyHopApp() {
   }
 
   const currentUserFid =
-    authenticatedFid ??
-    farcasterUser?.fid ??
-    (
-      user.fid > 0
-        ? user.fid
-        : null
-    );
+  authenticatedFid ??
+  farcasterUser?.fid ??
+  (
+    typeof user.fid === 'number' &&
+    user.fid > 0
+      ? user.fid
+      : null
+  );
 
   if (loading) {
     return (
