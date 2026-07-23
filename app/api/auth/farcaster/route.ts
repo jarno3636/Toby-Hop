@@ -1,6 +1,7 @@
 import {
   NextResponse,
 } from 'next/server';
+
 import {
   getAddress,
   isAddress,
@@ -10,9 +11,11 @@ import {
 import {
   createAppSession,
 } from '@/lib/auth/app-session';
+
 import {
   requireFarcasterUser,
 } from '@/lib/auth/require-farcaster-user';
+
 import {
   supabaseAdmin,
 } from '@/lib/supabase/admin';
@@ -72,21 +75,19 @@ export async function POST(
   request: Request,
 ) {
   try {
-    /*
-      The FID is accepted only from the verified
-      Farcaster Quick Auth token.
-    */
     const auth =
       await requireFarcasterUser(
         request,
       );
 
     const body =
-      (await request
-        .json()
-        .catch(
-          () => ({}),
-        )) as FarcasterAuthBody;
+      (
+        await request
+          .json()
+          .catch(
+            () => ({}),
+          )
+      ) as FarcasterAuthBody;
 
     const username =
       cleanText(
@@ -114,10 +115,6 @@ export async function POST(
     const db =
       supabaseAdmin();
 
-    /*
-      Resolve or create the Farcaster user first.
-      Context profile fields are display data only.
-    */
     const {
       data:
         farcasterUserResult,
@@ -157,101 +154,58 @@ export async function POST(
         farcasterUserResult,
       );
 
-    /*
-      The first automatic Quick Auth request may not have
-      a wallet yet. TobyHopApp calls this route again with
-      the transaction wallet when the user taps Toby.
-    */
     if (walletAddress) {
       const {
-        data:
-          walletUserResult,
         error:
-          walletUserError,
+          linkError,
       } =
         await db.rpc(
-          'toby_hop_get_or_create_wallet_user',
+          'toby_hop_link_wallet_identity',
           {
+            p_fid:
+              auth.fid,
+
             p_wallet_address:
               walletAddress
                 .toLowerCase(),
           },
         );
 
-      if (walletUserError) {
+      if (linkError) {
         console.error(
-          'Wallet user RPC failed:',
-          walletUserError,
+          'Farcaster-wallet linking failed:',
+          linkError,
         );
 
         throw new Error(
-          walletUserError.message,
+          linkError.message,
         );
       }
 
-      const walletUser =
-        firstRpcRow(
-          walletUserResult,
+      const {
+        data:
+          linkedUser,
+        error:
+          linkedUserError,
+      } =
+        await db
+          .from('toby_hop_users')
+          .select('*')
+          .eq(
+            'fid',
+            auth.fid,
+          )
+          .maybeSingle();
+
+      if (linkedUserError) {
+        throw new Error(
+          linkedUserError.message,
         );
+      }
 
-      const walletUserId =
-        walletUser &&
-        typeof walletUser ===
-          'object' &&
-        'id' in walletUser &&
-        typeof walletUser.id ===
-          'string'
-          ? walletUser.id
-          : null;
-
-      if (walletUserId) {
-        const {
-          data:
-            linkedUser,
-          error:
-            linkError,
-        } =
-          await db
-            .from(
-              'toby_hop_users',
-            )
-            .update({
-              fid:
-                auth.fid,
-
-              username,
-
-              display_name:
-                displayName,
-
-              pfp_url:
-                pfpUrl,
-
-              updated_at:
-                new Date()
-                  .toISOString(),
-            })
-            .eq(
-              'id',
-              walletUserId,
-            )
-            .select('*')
-            .maybeSingle();
-
-        if (linkError) {
-          console.error(
-            'Farcaster-wallet linking failed:',
-            linkError,
-          );
-
-          /*
-            Do not reject valid Quick Auth solely because
-            a legacy database record needs reconciliation.
-          */
-        } else if (linkedUser) {
-          user =
-            linkedUser;
-        }
+      if (linkedUser) {
+        user =
+          linkedUser;
       }
     }
 
@@ -270,22 +224,30 @@ export async function POST(
         8453,
     });
 
-    return NextResponse.json({
-      authenticated:
-        true,
+    return NextResponse.json(
+      {
+        authenticated:
+          true,
 
-      authMethod:
-        'farcaster',
+        authMethod:
+          'farcaster',
 
-      fid:
-        auth.fid,
+        fid:
+          auth.fid,
 
-      address:
-        walletAddress,
+        address:
+          walletAddress,
 
-      user:
-        user ?? null,
-    });
+        user:
+          user ?? null,
+      },
+      {
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
+      },
+    );
   } catch (cause) {
     const message =
       cause instanceof Error
@@ -317,16 +279,12 @@ export async function POST(
         user:
           null,
 
-        /*
-          Leave this visible while debugging.
-          It will tell us whether the remaining problem
-          is domain verification or the database.
-        */
         error:
           message,
       },
       {
-        status: 401,
+        status:
+          401,
 
         headers: {
           'Cache-Control':
