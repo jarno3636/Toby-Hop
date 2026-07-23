@@ -1771,8 +1771,26 @@ export function TobyHopApp() {
               cause,
             );
 
-            restored =
-              false;
+            /*
+              A Farcaster client can briefly fail Quick Auth while its
+              embedded webview is waking up. Fall back only to a stored
+              session that passes applySessionResult's active-FID check.
+              A stale session from another Farcaster account is rejected.
+            */
+            try {
+              restored =
+                await loadAppSession(
+                  context.user,
+                );
+            } catch (sessionCause) {
+              console.warn(
+                'Stored Farcaster session was unavailable:',
+                sessionCause,
+              );
+
+              restored =
+                false;
+            }
           }
         } else {
           /*
@@ -2396,7 +2414,11 @@ export function TobyHopApp() {
     }
   }
 
-  async function signInWithWallet():
+  async function signInWithWallet(
+    providedWallet:
+      Address | null =
+      null,
+  ):
   Promise<Address | null> {
     if (
       browserAuthRef.current
@@ -2413,6 +2435,7 @@ export function TobyHopApp() {
 
     try {
       const wallet =
+        providedWallet ??
         await getConnectedWallet();
 
       setHopState(
@@ -2556,6 +2579,23 @@ export function TobyHopApp() {
         },
         null,
       );
+
+      /*
+        Confirm that the browser actually retained the session cookie
+        before the hop quote is requested. Wallet browsers can return
+        from the signature sheet before their webview has fully applied
+        the Set-Cookie response.
+      */
+      const sessionReady =
+        await loadAppSession(
+          null,
+        );
+
+      if (!sessionReady) {
+        throw new Error(
+          'Your wallet signature was accepted, but the browser did not retain the Toby Hop session. Reopen the page and try once more.',
+        );
+      }
 
       return verified;
     } catch (cause) {
@@ -3184,7 +3224,9 @@ export function TobyHopApp() {
         !walletMatchesSession
       ) {
         const signedIn =
-          await signInWithWallet();
+          await signInWithWallet(
+            wallet,
+          );
 
         if (!signedIn) {
           return;
@@ -3730,11 +3772,13 @@ export function TobyHopApp() {
             <button
               type="button"
               className="wallet-pill"
-              onClick={
-                authenticated
-                  ? logoutWallet
-                  : signInWithWallet
-              }
+              onClick={() => {
+                if (authenticated) {
+                  void logoutWallet();
+                } else {
+                  void signInWithWallet();
+                }
+              }}
               disabled={
                 busy
               }
@@ -3854,9 +3898,9 @@ export function TobyHopApp() {
             <button
               type="button"
               className="primary"
-              onClick={
-                signInWithWallet
-              }
+              onClick={() => {
+                void signInWithWallet();
+              }}
               disabled={
                 busy ||
                 connectPending
