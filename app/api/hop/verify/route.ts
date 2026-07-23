@@ -11,6 +11,7 @@ import {
   isHash,
   type Address,
   type Hash,
+  type TransactionReceipt,
 } from 'viem';
 import {
   base,
@@ -46,6 +47,9 @@ const publicClient =
       ),
   });
 
+const RECEIPT_LOOKUP_ATTEMPTS = 8;
+const RECEIPT_LOOKUP_DELAY_MS = 1_250;
+
 type VerifyHopBody = {
   txHash?: string;
   walletAddress?: string;
@@ -58,6 +62,29 @@ type VerifiedHopResult = {
   daily_position: number;
   title_after: string;
 };
+
+type ExistingHopRow = {
+  id: string;
+  transaction_hash?: string | null;
+  input_amount_atomic?: string | null;
+  toby_amount_atomic?: string | null;
+  streak_after?: number | null;
+  total_hops_after?: number | null;
+  daily_position?: number | null;
+  title_after?: string | null;
+  cast_text?: string | null;
+};
+
+function sleep(
+  milliseconds: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(
+      resolve,
+      milliseconds,
+    );
+  });
+}
 
 function normalizeAddress(
   value: string,
@@ -91,20 +118,117 @@ string[] {
     .filter(Boolean);
 }
 
+async function getReceiptSoon(
+  hash: Hash,
+): Promise<TransactionReceipt | null> {
+  for (
+    let attempt = 0;
+    attempt < RECEIPT_LOOKUP_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      const receipt =
+        await publicClient
+          .getTransactionReceipt({
+            hash,
+          });
+
+      return receipt;
+    } catch {
+      await sleep(
+        RECEIPT_LOOKUP_DELAY_MS,
+      );
+    }
+  }
+
+  return null;
+}
+
+async function getExistingHopByHash(
+  transactionHash: Hash,
+): Promise<ExistingHopRow | null> {
+  const db =
+    supabaseAdmin();
+
+  const { data, error } =
+    await db
+      .from(
+        'toby_hops',
+      )
+      .select(
+        `
+          id,
+          transaction_hash,
+          input_amount_atomic,
+          toby_amount_atomic,
+          streak_after,
+          total_hops_after,
+          daily_position,
+          title_after,
+          cast_text
+        `,
+      )
+      .eq(
+        'transaction_hash',
+        transactionHash
+          .toLowerCase(),
+      )
+      .maybeSingle();
+
+  if (error) {
+    return null;
+  }
+
+  return data as ExistingHopRow | null;
+}
+
+function existingHopToResponse(
+  hop: ExistingHopRow,
+  transactionHash: Hash,
+) {
+  const tobyAtomic =
+    hop.toby_amount_atomic ??
+    '0';
+
+  const tobyDisplay =
+    formatAtomic(
+      BigInt(tobyAtomic),
+      18,
+      2,
+    );
+
+  return {
+    hopId:
+      hop.id,
+    tobyAtomic,
+    tobyDisplay,
+    usdcAtomic:
+      hop.input_amount_atomic ??
+      HOP_USDC_ATOMIC.toString(),
+    streak:
+      hop.streak_after ??
+      0,
+    totalHops:
+      hop.total_hops_after ??
+      0,
+    dailyPosition:
+      hop.daily_position ??
+      0,
+    title:
+      hop.title_after ??
+      'Pond Hopper',
+    castText:
+      hop.cast_text ??
+      'I hopped with Toby today.',
+    txHash:
+      transactionHash,
+  };
+}
+
 export async function POST(
   request: Request,
 ) {
   try {
-    /*
-      This route trusts the Toby Hop app session cookie.
-
-      Do not use requireFarcasterUser(request) here. That helper
-      requires a Farcaster Quick Auth Bearer token.
-
-      Do not require SIWE only here either. Farcaster hops create
-      a valid app session with authMethod "farcaster", fid, and
-      the connected wallet address.
-    */
     const session =
       await readAppSession();
 
@@ -170,6 +294,29 @@ export async function POST(
       );
     }
 
+    const transactionHash =
+      body.txHash as Hash;
+
+    const existingHop =
+      await getExistingHopByHash(
+        transactionHash,
+      );
+
+    if (existingHop) {
+      return NextResponse.json(
+        existingHopToResponse(
+          existingHop,
+          transactionHash,
+        ),
+        {
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
+        },
+      );
+    }
+
     if (
       !body.walletAddress ||
       !isAddress(
@@ -222,19 +369,28 @@ export async function POST(
       );
     }
 
-    const transactionHash =
-      body.txHash as Hash;
-
     const receipt =
-      await publicClient
-        .waitForTransactionReceipt({
-          hash:
-            transactionHash,
-          confirmations:
-            1,
-          timeout:
-            240_000,
-        });
+      await getReceiptSoon(
+        transactionHash,
+      );
+
+    if (!receipt) {
+      return NextResponse.json(
+        {
+          error:
+            'The transaction is not indexed yet. Try verifying again.',
+          retryable:
+            true,
+        },
+        {
+          status: 425,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
+        },
+      );
+    }
 
     if (
       receipt.status !==
@@ -309,9 +465,7 @@ export async function POST(
         TOBY_ADDRESS,
       );
 
-    for (
-      const log of receipt.logs
-    ) {
+    for (const log of receipt.logs) {
       try {
         const decoded =
           decodeEventLog({
@@ -373,7 +527,7 @@ export async function POST(
       HOP_USDC_ATOMIC
     ) {
       throw new Error(
-        'The transaction did not exchange the required USDC amount.',
+        `The transaction did not exchange the required USDC amount. Found ${usdcSpent.toString()} atomic USDC.`,
       );
     }
 
@@ -414,6 +568,26 @@ export async function POST(
       );
 
     if (error) {
+      const recovered =
+        await getExistingHopByHash(
+          transactionHash,
+        );
+
+      if (recovered) {
+        return NextResponse.json(
+          existingHopToResponse(
+            recovered,
+            transactionHash,
+          ),
+          {
+            headers: {
+              'Cache-Control':
+                'no-store',
+            },
+          },
+        );
+      }
+
       throw error;
     }
 
@@ -434,8 +608,7 @@ export async function POST(
 
     const {
       data: profile,
-      error:
-        profileError,
+      error: profileError,
     } =
       await db
         .from(
@@ -493,8 +666,7 @@ export async function POST(
       });
 
     const {
-      error:
-        castUpdateError,
+      error: castUpdateError,
     } =
       await db
         .from(
@@ -561,19 +733,26 @@ export async function POST(
         ? cause.message
         : 'Unable to verify hop.';
 
+    const lowered =
+      message.toLowerCase();
+
     const status =
-      message
-        .toLowerCase()
-        .includes(
-          'authentication',
-        )
+      lowered.includes(
+        'authentication',
+      )
         ? 401
-        : 400;
+        : lowered.includes(
+              'not indexed',
+            )
+          ? 425
+          : 400;
 
     return NextResponse.json(
       {
         error:
           message,
+        retryable:
+          status === 425,
       },
       {
         status,
