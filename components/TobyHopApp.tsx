@@ -70,7 +70,6 @@ import {
   type MiniAppUser,
   type Notice,
   type SessionResponse,
-  type StoredHopUser,
 } from '@/lib/toby-hop-ui';
 
 type HopState =
@@ -119,12 +118,18 @@ type SpecialPondState = {
   golden: boolean;
 };
 
+type WindowWithWebkitAudio =
+  Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+
 const API_TIMEOUT_MS = 15_000;
 const SDK_TIMEOUT_MS = 6_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRANSACTION_TIMEOUT_MS = 120_000;
 const VERIFICATION_TIMEOUT_MS = 45_000;
-const INITIALIZATION_FALLBACK_MS = 15_000;
+const INITIALIZATION_FALLBACK_MS = 20_000;
 
 const PENDING_HOP_STORAGE_KEY =
   'toby_hop_pending_verification';
@@ -171,17 +176,26 @@ function withTimeout<T>(
   message: string,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      reject(new Error(message));
-    }, milliseconds);
+    const timer =
+      window.setTimeout(() => {
+        reject(
+          new Error(message),
+        );
+      }, milliseconds);
 
     promise.then(
       (value) => {
-        window.clearTimeout(timer);
+        window.clearTimeout(
+          timer,
+        );
+
         resolve(value);
       },
       (cause) => {
-        window.clearTimeout(timer);
+        window.clearTimeout(
+          timer,
+        );
+
         reject(cause);
       },
     );
@@ -193,21 +207,26 @@ async function fetchWithTimeout(
   init: RequestInit = {},
   timeoutMs = API_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController();
+  const controller =
+    new AbortController();
 
-  const timer = window.setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const timer =
+    window.setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
 
   try {
     return await fetch(input, {
       ...init,
+
       signal:
         init.signal ??
         controller.signal,
     });
   } finally {
-    window.clearTimeout(timer);
+    window.clearTimeout(
+      timer,
+    );
   }
 }
 
@@ -234,7 +253,9 @@ async function readJsonResponse<T>(
   }
 
   try {
-    return JSON.parse(raw) as T;
+    return JSON.parse(
+      raw,
+    ) as T;
   } catch {
     throw new Error(
       fallbackError,
@@ -251,6 +272,236 @@ function sleep(
       milliseconds,
     );
   });
+}
+
+function createAudioContext():
+AudioContext | null {
+  try {
+    const AudioContextConstructor =
+      window.AudioContext ??
+      (
+        window as WindowWithWebkitAudio
+      ).webkitAudioContext;
+
+    if (!AudioContextConstructor) {
+      return null;
+    }
+
+    return new AudioContextConstructor();
+  } catch {
+    return null;
+  }
+}
+
+function playHopLaunchSound(): void {
+  const context =
+    createAudioContext();
+
+  if (!context) {
+    return;
+  }
+
+  void context.resume()
+    .catch(() => undefined);
+
+  const start =
+    context.currentTime;
+
+  const oscillator =
+    context.createOscillator();
+
+  const gain =
+    context.createGain();
+
+  oscillator.type =
+    'sine';
+
+  oscillator.frequency
+    .setValueAtTime(
+      190,
+      start,
+    );
+
+  oscillator.frequency
+    .exponentialRampToValueAtTime(
+      560,
+      start + 0.16,
+    );
+
+  oscillator.frequency
+    .exponentialRampToValueAtTime(
+      390,
+      start + 0.24,
+    );
+
+  gain.gain
+    .setValueAtTime(
+      0.0001,
+      start,
+    );
+
+  gain.gain
+    .exponentialRampToValueAtTime(
+      0.12,
+      start + 0.015,
+    );
+
+  gain.gain
+    .exponentialRampToValueAtTime(
+      0.0001,
+      start + 0.28,
+    );
+
+  oscillator.connect(
+    gain,
+  );
+
+  gain.connect(
+    context.destination,
+  );
+
+  oscillator.start(
+    start,
+  );
+
+  oscillator.stop(
+    start + 0.3,
+  );
+
+  window.setTimeout(() => {
+    void context.close()
+      .catch(() => undefined);
+  }, 500);
+}
+
+function playHopLandingSound(): void {
+  const context =
+    createAudioContext();
+
+  if (!context) {
+    return;
+  }
+
+  void context.resume()
+    .catch(() => undefined);
+
+  const start =
+    context.currentTime;
+
+  const first =
+    context.createOscillator();
+
+  const second =
+    context.createOscillator();
+
+  const firstGain =
+    context.createGain();
+
+  const secondGain =
+    context.createGain();
+
+  first.type =
+    'sine';
+
+  second.type =
+    'triangle';
+
+  first.frequency
+    .setValueAtTime(
+      440,
+      start,
+    );
+
+  first.frequency
+    .exponentialRampToValueAtTime(
+      620,
+      start + 0.17,
+    );
+
+  second.frequency
+    .setValueAtTime(
+      660,
+      start + 0.08,
+    );
+
+  second.frequency
+    .exponentialRampToValueAtTime(
+      880,
+      start + 0.28,
+    );
+
+  firstGain.gain
+    .setValueAtTime(
+      0.0001,
+      start,
+    );
+
+  firstGain.gain
+    .exponentialRampToValueAtTime(
+      0.1,
+      start + 0.015,
+    );
+
+  firstGain.gain
+    .exponentialRampToValueAtTime(
+      0.0001,
+      start + 0.3,
+    );
+
+  secondGain.gain
+    .setValueAtTime(
+      0.0001,
+      start,
+    );
+
+  secondGain.gain
+    .exponentialRampToValueAtTime(
+      0.07,
+      start + 0.1,
+    );
+
+  secondGain.gain
+    .exponentialRampToValueAtTime(
+      0.0001,
+      start + 0.38,
+    );
+
+  first.connect(
+    firstGain,
+  );
+
+  second.connect(
+    secondGain,
+  );
+
+  firstGain.connect(
+    context.destination,
+  );
+
+  secondGain.connect(
+    context.destination,
+  );
+
+  first.start(
+    start,
+  );
+
+  second.start(
+    start + 0.08,
+  );
+
+  first.stop(
+    start + 0.32,
+  );
+
+  second.stop(
+    start + 0.4,
+  );
+
+  window.setTimeout(() => {
+    void context.close()
+      .catch(() => undefined);
+  }, 650);
 }
 
 function readPendingHop():
@@ -315,12 +566,13 @@ function storePendingHop(
       JSON.stringify({
         txHash,
         walletAddress,
+
         createdAt:
           Date.now(),
       } satisfies PendingHopRecord),
     );
   } catch {
-    // Pending recovery is best effort.
+    // Best effort.
   }
 }
 
@@ -338,15 +590,20 @@ async function getSafeMiniAppContext():
 Promise<MiniAppContextResult> {
   let latestResult:
     MiniAppContextResult = {
-      user: null,
-      added: false,
-      available: false,
+      user:
+        null,
+
+      added:
+        false,
+
+      available:
+        false,
     };
 
   for (
     let attempt = 0;
     attempt <
-    FARCASTER_CONTEXT_RETRY_DELAYS_MS.length;
+      FARCASTER_CONTEXT_RETRY_DELAYS_MS.length;
     attempt += 1
   ) {
     const delay =
@@ -355,7 +612,9 @@ Promise<MiniAppContextResult> {
       ] ?? 0;
 
     if (delay > 0) {
-      await sleep(delay);
+      await sleep(
+        delay,
+      );
     }
 
     try {
@@ -364,7 +623,9 @@ Promise<MiniAppContextResult> {
           Promise.resolve(
             sdk.context,
           ),
+
           SDK_TIMEOUT_MS,
+
           'Farcaster context timed out.',
         );
 
@@ -378,9 +639,12 @@ Promise<MiniAppContextResult> {
 
       const typed =
         context as {
-          user?: MiniAppUser;
+          user?:
+            MiniAppUser;
+
           client?: {
-            added?: boolean;
+            added?:
+              boolean;
           };
         };
 
@@ -397,10 +661,12 @@ Promise<MiniAppContextResult> {
 
       latestResult = {
         user,
+
         added:
           Boolean(
             typed.client?.added,
           ),
+
         available:
           Boolean(user),
       };
@@ -409,7 +675,7 @@ Promise<MiniAppContextResult> {
         return latestResult;
       }
     } catch {
-      // Some Farcaster clients expose context slowly.
+      // Some clients expose context slowly.
     }
   }
 
@@ -449,7 +715,9 @@ function buildSpecialPondState(
     pond.particle;
 
   const isRainbow =
-    id.includes('rainbow');
+    id.includes(
+      'rainbow',
+    );
 
   return {
     rainbow:
@@ -459,44 +727,91 @@ function buildSpecialPondState(
       !isRainbow &&
       (
         id === 'rain' ||
-        id.includes('rainy') ||
-        id.includes('storm') ||
-        particle === 'drop'
+        id.includes(
+          'rainy',
+        ) ||
+        id.includes(
+          'storm',
+        ) ||
+        particle ===
+          'drop'
       ),
 
     snow:
-      id.includes('snow') ||
-      id.includes('winter') ||
-      particle === 'snow',
+      id.includes(
+        'snow',
+      ) ||
+      id.includes(
+        'winter',
+      ) ||
+      particle ===
+        'snow',
 
     shootingStars:
-      id.includes('shooting-star') ||
-      id.includes('meteor') ||
-      id.includes('comet'),
+      id.includes(
+        'shooting-star',
+      ) ||
+      id.includes(
+        'meteor',
+      ) ||
+      id.includes(
+        'comet',
+      ),
 
     fireflies:
-      id.includes('firefly') ||
-      particle === 'firefly',
+      id.includes(
+        'firefly',
+      ) ||
+      particle ===
+        'firefly',
 
     petals:
-      id.includes('petal') ||
-      id.includes('blossom') ||
-      id.includes('sakura') ||
-      particle === 'petal',
+      id.includes(
+        'petal',
+      ) ||
+      id.includes(
+        'blossom',
+      ) ||
+      id.includes(
+        'sakura',
+      ) ||
+      particle ===
+        'petal',
 
     autumn:
-      id.includes('autumn') ||
-      id.includes('fall') ||
-      particle === 'leaf',
+      id.includes(
+        'autumn',
+      ) ||
+      id.includes(
+        'fall',
+      ) ||
+      particle ===
+        'leaf',
 
     lotus:
-      id.includes('lotus'),
+      id.includes(
+        'lotus',
+      ),
 
     golden:
       Boolean(
         pond.goldenToby,
       ),
   };
+}
+
+function formatMoonPhase(
+  value: string,
+): string {
+  return value
+    .split('-')
+    .map(
+      (word) =>
+        word
+          ? `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`
+          : word,
+    )
+    .join(' ');
 }
 
 export function TobyHopApp() {
@@ -644,9 +959,6 @@ export function TobyHopApp() {
   const initializationStartedRef =
     useRef(false);
 
-  const automaticFarcasterRestoreRef =
-    useRef(false);
-
   const todaysPond =
     useMemo(
       () =>
@@ -662,6 +974,93 @@ export function TobyHopApp() {
         ),
       [todaysPond],
     );
+
+  const pondConditions =
+    useMemo(() => {
+      const conditions:
+        string[] = [
+          formatMoonPhase(
+            todaysPond.moonPhase,
+          ),
+        ];
+
+      if (
+        specialPond.rainbow
+      ) {
+        conditions.push(
+          'Rainbow',
+        );
+      }
+
+      if (
+        specialPond.rain
+      ) {
+        conditions.push(
+          'Rain',
+        );
+      }
+
+      if (
+        specialPond.snow
+      ) {
+        conditions.push(
+          'Snow',
+        );
+      }
+
+      if (
+        specialPond.shootingStars
+      ) {
+        conditions.push(
+          'Meteor Shower',
+        );
+      }
+
+      if (
+        specialPond.fireflies
+      ) {
+        conditions.push(
+          'Fireflies',
+        );
+      }
+
+      if (
+        specialPond.petals
+      ) {
+        conditions.push(
+          'Falling Petals',
+        );
+      }
+
+      if (
+        specialPond.autumn
+      ) {
+        conditions.push(
+          'Autumn Leaves',
+        );
+      }
+
+      if (
+        specialPond.lotus
+      ) {
+        conditions.push(
+          'Lotus Bloom',
+        );
+      }
+
+      if (
+        specialPond.golden
+      ) {
+        conditions.push(
+          'Golden Toby',
+        );
+      }
+
+      return conditions;
+    }, [
+      specialPond,
+      todaysPond.moonPhase,
+    ]);
 
   const particles =
     useMemo(() => {
@@ -685,25 +1084,46 @@ export function TobyHopApp() {
 
           left:
             4 +
-            ((index * 37 + 11) %
-              92),
+            (
+              (
+                index *
+                  37 +
+                11
+              ) %
+              92
+            ),
 
           delay:
-            ((index * 23) %
-              31) /
+            (
+              (
+                index *
+                  23
+              ) %
+              31
+            ) /
             10,
 
           duration:
             3.4 +
-            ((index * 17) %
-              25) /
-              10,
+            (
+              (
+                index *
+                  17
+              ) %
+              25
+            ) /
+            10,
 
           scale:
             0.65 +
-            ((index * 13) %
-              9) /
-              10,
+            (
+              (
+                index *
+                  13
+              ) %
+              9
+            ) /
+            10,
         }),
       );
     }, [todaysPond]);
@@ -712,38 +1132,46 @@ export function TobyHopApp() {
     address,
     chainId,
     isConnected,
-  } = useAccount();
+  } =
+    useAccount();
 
   const {
     connectors,
     connectAsync,
     isPending:
       connectPending,
-  } = useConnect();
+  } =
+    useConnect();
 
   const {
     disconnect,
-  } = useDisconnect();
+  } =
+    useDisconnect();
 
   const {
     signMessageAsync,
-  } = useSignMessage();
+  } =
+    useSignMessage();
 
   const {
     switchChainAsync,
-  } = useSwitchChain();
+  } =
+    useSwitchChain();
 
   const {
     writeContractAsync,
-  } = useWriteContract();
+  } =
+    useWriteContract();
 
   const {
     sendTransactionAsync,
-  } = useSendTransaction();
+  } =
+    useSendTransaction();
 
   const publicClient =
     usePublicClient({
-      chainId: base.id,
+      chainId:
+        base.id,
     });
 
   const isFarcasterMiniApp =
@@ -751,7 +1179,8 @@ export function TobyHopApp() {
     'farcaster';
 
   const busy =
-    hopState !== 'idle';
+    hopState !==
+    'idle';
 
   const walletMatchesSession =
     addressesMatch(
@@ -762,16 +1191,19 @@ export function TobyHopApp() {
   const displayName =
     user.display_name ||
     user.username ||
-    farcasterUser?.displayName ||
-    farcasterUser?.username ||
+    farcasterUser
+      ?.displayName ||
+    farcasterUser
+      ?.username ||
     shortenAddress(
       authenticatedAddress ??
-        address,
+      address,
     );
 
   const profilePfp =
     user.pfp_url ||
-    farcasterUser?.pfpUrl ||
+    farcasterUser
+      ?.pfpUrl ||
     FALLBACK_PFP;
 
   const canCast =
@@ -788,7 +1220,8 @@ export function TobyHopApp() {
       : null;
 
   const contextFid =
-    typeof farcasterUser?.fid ===
+    typeof farcasterUser
+      ?.fid ===
       'number' &&
     farcasterUser.fid > 0
       ? farcasterUser.fid
@@ -814,7 +1247,7 @@ export function TobyHopApp() {
             const hasCompletedHop =
               Number(
                 row.total_hops ??
-                  0,
+                0,
               ) > 0 &&
               Boolean(
                 row.last_hop_at,
@@ -833,9 +1266,9 @@ export function TobyHopApp() {
               ) ||
               Boolean(
                 rowFid &&
-                  currentUserFid &&
-                  rowFid ===
-                    currentUserFid,
+                currentUserFid &&
+                rowFid ===
+                  currentUserFid
               )
             );
           },
@@ -862,7 +1295,9 @@ export function TobyHopApp() {
           'browser',
       ) => {
         setNotice({
-          kind: 'error',
+          kind:
+            'error',
+
           message:
             getErrorMessage(
               cause,
@@ -893,7 +1328,8 @@ export function TobyHopApp() {
         );
 
         setAuthenticatedFid(
-          typeof fcUser?.fid ===
+          typeof fcUser
+            ?.fid ===
             'number' &&
           fcUser.fid > 0
             ? fcUser.fid
@@ -942,28 +1378,71 @@ export function TobyHopApp() {
         const responseFid =
           typeof result.fid ===
             'number' &&
+          Number.isSafeInteger(
+            result.fid,
+          ) &&
           result.fid > 0
             ? result.fid
             : null;
 
+        const rawDatabaseFid =
+          result.user?.fid;
+
         const databaseFid =
-          typeof result.user?.fid ===
+          typeof rawDatabaseFid ===
             'number' &&
-          result.user.fid > 0
-            ? result.user.fid
-            : null;
+          Number.isSafeInteger(
+            rawDatabaseFid,
+          ) &&
+          rawDatabaseFid > 0
+            ? rawDatabaseFid
+            : typeof rawDatabaseFid ===
+                'string' &&
+              Number.isSafeInteger(
+                Number(
+                  rawDatabaseFid,
+                ),
+              ) &&
+              Number(
+                rawDatabaseFid,
+              ) > 0
+              ? Number(
+                  rawDatabaseFid,
+                )
+              : null;
 
         const farcasterContextFid =
           typeof fcUser?.fid ===
             'number' &&
+          Number.isSafeInteger(
+            fcUser.fid,
+          ) &&
           fcUser.fid > 0
             ? fcUser.fid
             : null;
 
-        const sessionFid =
+        const resultFid =
           responseFid ??
-          databaseFid ??
-          farcasterContextFid;
+          databaseFid;
+
+        if (
+          farcasterContextFid &&
+          resultFid &&
+          farcasterContextFid !==
+            resultFid
+        ) {
+          resetAppSession(
+            fcUser,
+          );
+
+          throw new Error(
+            'The returned Toby Hop profile did not match the active Farcaster account.',
+          );
+        }
+
+        const sessionFid =
+          farcasterContextFid ??
+          resultFid;
 
         setAuthenticated(
           true,
@@ -971,13 +1450,13 @@ export function TobyHopApp() {
 
         setAuthMethod(
           result.authMethod ??
-            (
-              sessionFid
-                ? 'farcaster'
-                : normalizedAddress
-                  ? 'siwe'
-                  : null
-            ),
+          (
+            sessionFid
+              ? 'farcaster'
+              : normalizedAddress
+                ? 'siwe'
+                : null
+          ),
         );
 
         setAuthenticatedAddress(
@@ -988,6 +1467,12 @@ export function TobyHopApp() {
           sessionFid,
         );
 
+        /*
+          Always replace the full user.
+
+          Never merge a newly authenticated profile with state
+          from a previously active Farcaster account.
+        */
         setUser(
           normalizeUser(
             result.user,
@@ -1011,16 +1496,26 @@ export function TobyHopApp() {
           await fetchWithTimeout(
             '/api/auth/session',
             {
-              method: 'GET',
+              method:
+                'GET',
+
               credentials:
                 'include',
+
               cache:
                 'no-store',
+
+              headers: {
+                accept:
+                  'application/json',
+              },
             },
           );
 
         const result =
-          await readJsonResponse<SessionResponse>(
+          await readJsonResponse<
+            SessionResponse
+          >(
             response,
             'Unable to check your Toby Hop session.',
           );
@@ -1041,7 +1536,9 @@ export function TobyHopApp() {
         walletAddress:
           Address | null =
           null,
-      ): Promise<SessionResponse | null> => {
+      ): Promise<
+        SessionResponse | null
+      > => {
         if (
           typeof miniUser.fid !==
             'number' ||
@@ -1118,7 +1615,9 @@ export function TobyHopApp() {
             );
 
           const result =
-            await readJsonResponse<SessionResponse>(
+            await readJsonResponse<
+              SessionResponse
+            >(
               response,
               'Farcaster authentication failed.',
             );
@@ -1128,8 +1627,8 @@ export function TobyHopApp() {
           ) {
             throw new Error(
               result.error ||
-                result.message ||
-                'Farcaster authentication failed.',
+              result.message ||
+              'Farcaster authentication failed.',
             );
           }
 
@@ -1144,7 +1643,7 @@ export function TobyHopApp() {
               : null;
 
           if (
-            resultFid &&
+            !resultFid ||
             resultFid !==
               miniUser.fid
           ) {
@@ -1178,16 +1677,8 @@ export function TobyHopApp() {
 
           return result;
         } catch (cause) {
-          setAuthenticated(
-            false,
-          );
-
-          setAuthMethod(
-            null,
-          );
-
-          setAuthenticatedAddress(
-            null,
+          resetAppSession(
+            miniUser,
           );
 
           throw cause;
@@ -1200,82 +1691,10 @@ export function TobyHopApp() {
           );
         }
       },
-      [applySessionResult],
-    );
-
-  const syncProfile =
-    useCallback(
-      async (
-        miniUser:
-          MiniAppUser,
-      ) => {
-        try {
-          const response =
-            await fetchWithTimeout(
-              '/api/me',
-              {
-                method:
-                  'POST',
-
-                credentials:
-                  'include',
-
-                cache:
-                  'no-store',
-
-                headers: {
-                  'content-type':
-                    'application/json',
-                },
-
-                body:
-                  JSON.stringify({
-                    username:
-                      miniUser.username ??
-                      null,
-
-                    displayName:
-                      miniUser.displayName ??
-                      null,
-
-                    pfpUrl:
-                      miniUser.pfpUrl ??
-                      null,
-                  }),
-              },
-            );
-
-          if (
-            !response.ok
-          ) {
-            return;
-          }
-
-          const raw =
-            await response.text();
-
-          if (
-            !raw.trim()
-          ) {
-            return;
-          }
-
-          const storedUser =
-            JSON.parse(
-              raw,
-            ) as StoredHopUser;
-
-          setUser(
-            normalizeUser(
-              storedUser,
-              miniUser,
-            ),
-          );
-        } catch {
-          // Profile synchronization must not block the app.
-        }
-      },
-      [],
+      [
+        applySessionResult,
+        resetAppSession,
+      ],
     );
 
   useEffect(() => {
@@ -1288,22 +1707,33 @@ export function TobyHopApp() {
     initializationStartedRef.current =
       true;
 
-    let active = true;
+    let active =
+      true;
 
     async function initialize() {
-      setLoading(true);
-      setInitialAuthResolved(false);
-      setNotice(null);
+      setLoading(
+        true,
+      );
+
+      setInitialAuthResolved(
+        false,
+      );
+
+      setNotice(
+        null,
+      );
 
       try {
         try {
           await withTimeout(
             sdk.actions.ready(),
+
             SDK_TIMEOUT_MS,
+
             'Farcaster ready timed out.',
           );
         } catch {
-          // Browser sessions can continue without the SDK.
+          // Browser sessions continue without the SDK.
         }
 
         const context =
@@ -1340,34 +1770,28 @@ export function TobyHopApp() {
           context.added,
         );
 
+        /*
+          Clear any previously displayed identity before resolving
+          the currently active Farcaster profile.
+        */
+        resetAppSession(
+          context.user,
+        );
+
         let restored =
           false;
 
-        try {
-          restored =
-            await loadAppSession(
-              context.user,
-            );
-        } catch (cause) {
-          console.warn(
-            'Stored Toby Hop session was unavailable:',
-            cause,
-          );
-
-          restored =
-            false;
-        }
-
         if (
-          !restored &&
           detected ===
             'farcaster' &&
-          context.user &&
-          !automaticFarcasterRestoreRef.current
+          context.user
         ) {
-          automaticFarcasterRestoreRef.current =
-            true;
+          /*
+            Critical account-switch fix:
 
+            Authenticate the live Farcaster context first. Do not
+            read the old Toby Hop cookie before doing this.
+          */
           try {
             const result =
               await authenticateWithFarcaster(
@@ -1377,11 +1801,31 @@ export function TobyHopApp() {
 
             restored =
               Boolean(
-                result?.authenticated,
+                result
+                  ?.authenticated,
               );
           } catch (cause) {
             console.error(
-              'Automatic Farcaster restoration failed:',
+              'Automatic Farcaster authentication failed:',
+              cause,
+            );
+
+            restored =
+              false;
+          }
+        } else {
+          /*
+            Stored sessions are only restored first for regular
+            browser/SIWE usage.
+          */
+          try {
+            restored =
+              await loadAppSession(
+                null,
+              );
+          } catch (cause) {
+            console.warn(
+              'Stored browser session was unavailable:',
               cause,
             );
 
@@ -1395,27 +1839,10 @@ export function TobyHopApp() {
         }
 
         if (
-          restored &&
-          context.user
-        ) {
-          await syncProfile(
-            context.user,
-          );
-        } else if (
-          detected ===
-            'farcaster' &&
-          context.user
-        ) {
-          resetAppSession(
-            context.user,
-          );
-        } else if (
-          detected ===
-            'browser' &&
           !restored
         ) {
           resetAppSession(
-            null,
+            context.user,
           );
         }
       } catch (cause) {
@@ -1430,6 +1857,10 @@ export function TobyHopApp() {
 
         setHostMode(
           'browser',
+        );
+
+        resetAppSession(
+          null,
         );
 
         setErrorNotice(
@@ -1452,14 +1883,14 @@ export function TobyHopApp() {
     void initialize();
 
     return () => {
-      active = false;
+      active =
+        false;
     };
   }, [
     authenticateWithFarcaster,
     loadAppSession,
     resetAppSession,
     setErrorNotice,
-    syncProfile,
   ]);
 
   useEffect(() => {
@@ -1471,37 +1902,34 @@ export function TobyHopApp() {
     }
 
     const timer =
-      window.setTimeout(
-        () => {
-          setLoading(
-            false,
-          );
+      window.setTimeout(() => {
+        setLoading(
+          false,
+        );
 
-          setInitialAuthResolved(
-            true,
-          );
+        setInitialAuthResolved(
+          true,
+        );
 
-          setHostMode(
-            (current) =>
-              current ===
-              'checking'
-                ? 'browser'
-                : current,
-          );
+        setHostMode(
+          (current) =>
+            current ===
+            'checking'
+              ? 'browser'
+              : current,
+        );
 
-          setNotice(
-            (current) =>
-              current ?? {
-                kind:
-                  'error',
+        setNotice(
+          (current) =>
+            current ?? {
+              kind:
+                'error',
 
-                message:
-                  'The pond took too long to reconnect. Retry the connection or reopen Toby Hop.',
-              },
-          );
-        },
-        INITIALIZATION_FALLBACK_MS,
-      );
+              message:
+                'The pond took too long to reconnect. Retry the connection or reopen Toby Hop.',
+            },
+        );
+      }, INITIALIZATION_FALLBACK_MS);
 
     return () => {
       window.clearTimeout(
@@ -1535,7 +1963,9 @@ export function TobyHopApp() {
     );
 
     setNotice({
-      kind: 'error',
+      kind:
+        'error',
+
       message:
         'The connected wallet changed. Sign in again to protect your pond record.',
     });
@@ -1621,7 +2051,8 @@ export function TobyHopApp() {
 
   useEffect(() => {
     if (
-      view === 'leaders'
+      view ===
+      'leaders'
     ) {
       void loadLeaderboard(
         leaderKind,
@@ -1644,7 +2075,9 @@ export function TobyHopApp() {
       const capabilities =
         await withTimeout(
           sdk.getCapabilities(),
+
           SDK_TIMEOUT_MS,
+
           'Capabilities timed out.',
         );
 
@@ -1659,7 +2092,7 @@ export function TobyHopApp() {
           );
       }
     } catch {
-      // Haptics are optional.
+      // Optional.
     }
   }
 
@@ -1741,6 +2174,7 @@ export function TobyHopApp() {
       await withTimeout(
         connectAsync({
           connector,
+
           chainId:
             base.id,
         }),
@@ -1755,7 +2189,9 @@ export function TobyHopApp() {
 
     if (
       !wallet ||
-      !isAddress(wallet)
+      !isAddress(
+        wallet,
+      )
     ) {
       throw new Error(
         'No Base wallet was returned.',
@@ -1769,7 +2205,8 @@ export function TobyHopApp() {
 
   async function ensureBaseChain() {
     if (
-      chainId === base.id
+      chainId ===
+      base.id
     ) {
       return;
     }
@@ -1799,7 +2236,9 @@ export function TobyHopApp() {
     browserAuthRef.current =
       true;
 
-    setNotice(null);
+    setNotice(
+      null,
+    );
 
     try {
       const wallet =
@@ -1898,7 +2337,9 @@ export function TobyHopApp() {
         );
 
       const result =
-        await readJsonResponse<SessionResponse>(
+        await readJsonResponse<
+          SessionResponse
+        >(
           verifyResponse,
           'Wallet authentication failed.',
         );
@@ -1912,7 +2353,7 @@ export function TobyHopApp() {
       ) {
         throw new Error(
           result.error ||
-            'Wallet authentication failed.',
+          'Wallet authentication failed.',
         );
       }
 
@@ -1935,8 +2376,10 @@ export function TobyHopApp() {
       applySessionResult(
         {
           ...result,
+
           authMethod:
             'siwe',
+
           address:
             verified,
         },
@@ -1972,10 +2415,15 @@ export function TobyHopApp() {
       );
     }
 
+    const activeFid =
+      farcasterUser.fid;
+
     if (
       authenticated &&
       authMethod ===
         'farcaster' &&
+      authenticatedFid ===
+        activeFid &&
       addressesMatch(
         authenticatedAddress,
         wallet,
@@ -1996,11 +2444,13 @@ export function TobyHopApp() {
 
     return Boolean(
       result?.authenticated &&
-        result.address &&
-        addressesMatch(
-          result.address,
-          wallet,
-        ),
+      result.fid ===
+        farcasterUser.fid &&
+      result.address &&
+      addressesMatch(
+        result.address,
+        wallet,
+      ),
     );
   }
 
@@ -2019,10 +2469,13 @@ export function TobyHopApp() {
       return;
     }
 
-    setNotice(null);
+    setNotice(
+      null,
+    );
 
-    automaticFarcasterRestoreRef.current =
-      false;
+    resetAppSession(
+      farcasterUser,
+    );
 
     try {
       const result =
@@ -2030,7 +2483,9 @@ export function TobyHopApp() {
           farcasterUser,
 
           address &&
-          isAddress(address)
+          isAddress(
+            address,
+          )
             ? getAddress(
                 address,
               )
@@ -2044,10 +2499,6 @@ export function TobyHopApp() {
           'Farcaster authentication did not complete.',
         );
       }
-
-      await syncProfile(
-        farcasterUser,
-      );
 
       setNotice({
         kind:
@@ -2071,7 +2522,9 @@ export function TobyHopApp() {
       return;
     }
 
-    setNotice(null);
+    setNotice(
+      null,
+    );
 
     try {
       await fetchWithTimeout(
@@ -2085,7 +2538,7 @@ export function TobyHopApp() {
         },
       );
     } catch {
-      // Clear local state even if logout request fails.
+      // Local state still clears.
     }
 
     resetAppSession(
@@ -2132,7 +2585,9 @@ export function TobyHopApp() {
         });
 
     if (
-      BigInt(allowance) >=
+      BigInt(
+        allowance,
+      ) >=
       BigInt(
         HOP_USDC_ATOMIC,
       )
@@ -2168,8 +2623,10 @@ export function TobyHopApp() {
       await publicClient
         .waitForTransactionReceipt({
           hash,
+
           confirmations:
             1,
+
           timeout:
             TRANSACTION_TIMEOUT_MS,
         });
@@ -2236,6 +2693,8 @@ export function TobyHopApp() {
           }),
         );
 
+        playHopLandingSound();
+
         setNotice({
           kind:
             'success',
@@ -2257,7 +2716,7 @@ export function TobyHopApp() {
             leaderKind,
           );
         } catch {
-          // Leaderboard refresh is optional.
+          // Optional.
         }
       },
       [
@@ -2283,7 +2742,7 @@ export function TobyHopApp() {
         for (
           let attempt = 0;
           attempt <
-          VERIFY_RETRY_DELAYS_MS.length;
+            VERIFY_RETRY_DELAYS_MS.length;
           attempt += 1
         ) {
           const delay =
@@ -2424,7 +2883,7 @@ export function TobyHopApp() {
         for (
           let attempt = 0;
           attempt <
-          QUOTE_RETRY_DELAYS_MS.length;
+            QUOTE_RETRY_DELAYS_MS.length;
           attempt += 1
         ) {
           const delay =
@@ -2465,7 +2924,9 @@ export function TobyHopApp() {
                 API_TIMEOUT_MS,
               );
 
-            return await readJsonResponse<QuoteResponse>(
+            return await readJsonResponse<
+              QuoteResponse
+            >(
               quoteResponse,
               'Unable to prepare today’s hop.',
             );
@@ -2523,7 +2984,11 @@ export function TobyHopApp() {
     hopInProgressRef.current =
       true;
 
-    setNotice(null);
+    setNotice(
+      null,
+    );
+
+    playHopLaunchSound();
 
     await provideTapFeedback();
 
@@ -2640,7 +3105,9 @@ export function TobyHopApp() {
       if (
         !quote.transaction.data ||
         !quote.transaction.data
-          .startsWith('0x')
+          .startsWith(
+            '0x',
+          )
       ) {
         throw new Error(
           'The hop quote returned invalid transaction data.',
@@ -2671,7 +3138,7 @@ export function TobyHopApp() {
           value:
             BigInt(
               quote.transaction.value ??
-                '0',
+              '0',
             ),
 
           gas:
@@ -2783,6 +3250,7 @@ export function TobyHopApp() {
       setNotice({
         kind:
           'error',
+
         message,
       });
 
@@ -2794,16 +3262,8 @@ export function TobyHopApp() {
         if (
           isFarcasterMiniApp
         ) {
-          setAuthenticated(
-            false,
-          );
-
-          setAuthenticatedAddress(
-            null,
-          );
-
-          setAuthMethod(
-            null,
+          resetAppSession(
+            farcasterUser,
           );
         } else {
           resetAppSession(
@@ -2839,14 +3299,18 @@ export function TobyHopApp() {
       return;
     }
 
-    setNotice(null);
+    setNotice(
+      null,
+    );
 
     const appUrl =
       process.env
         .NEXT_PUBLIC_APP_URL ||
       window.location.origin;
 
-    if (canCast) {
+    if (
+      canCast
+    ) {
       try {
         await withTimeout(
           sdk.actions
@@ -2867,7 +3331,7 @@ export function TobyHopApp() {
 
         return;
       } catch {
-        // Fall back to native sharing.
+        // Use native sharing.
       }
     }
 
@@ -2998,8 +3462,8 @@ export function TobyHopApp() {
       'signing-in'
       ? 'SIGNING IN'
       : hopState ===
-            'connecting' ||
-          connectPending
+          'connecting' ||
+        connectPending
         ? 'CONNECTING'
         : 'CONNECT WALLET';
 
@@ -3016,8 +3480,8 @@ export function TobyHopApp() {
           </strong>
 
           <span>
-            Restoring your Farcaster profile
-            and daily record…
+            Verifying your active Farcaster
+            profile and daily record…
           </span>
         </div>
       </main>
@@ -3102,7 +3566,9 @@ export function TobyHopApp() {
                   ? logoutWallet
                   : signInWithWallet
               }
-              disabled={busy}
+              disabled={
+                busy
+              }
               aria-label={
                 authenticated
                   ? 'Sign out wallet'
@@ -3155,11 +3621,14 @@ export function TobyHopApp() {
         )}
       </header>
 
-      {view !== 'leaders' && (
+      {view !==
+        'leaders' && (
         <section className="profile">
           <img
             className="pfp"
-            src={profilePfp}
+            src={
+              profilePfp
+            }
             alt={`${displayName} profile`}
           />
 
@@ -3191,7 +3660,8 @@ export function TobyHopApp() {
 
       {!authenticated &&
         !isFarcasterMiniApp &&
-        view === 'hop' && (
+        view ===
+          'hop' && (
           <section className="empty-state-card join-pond-card">
             <div
               className="join-pond-icon"
@@ -3206,9 +3676,9 @@ export function TobyHopApp() {
               </strong>
 
               <p>
-                Connect a Base wallet
-                and sign once to save
-                your progress.
+                Connect a Base wallet and
+                sign once to save your
+                progress.
               </p>
             </div>
 
@@ -3231,7 +3701,8 @@ export function TobyHopApp() {
       {!authenticated &&
         isFarcasterMiniApp &&
         initialAuthResolved &&
-        view === 'hop' && (
+        view ===
+          'hop' && (
           <section className="empty-state-card join-pond-card">
             <div
               className="join-pond-icon"
@@ -3246,11 +3717,10 @@ export function TobyHopApp() {
               </strong>
 
               <p>
-                Toby Hop normally restores
-                your Farcaster profile
-                automatically. Retry only
-                when the connection was
-                interrupted.
+                Toby Hop could not verify
+                the active Farcaster
+                profile. Retry the secure
+                connection.
               </p>
             </div>
 
@@ -3272,23 +3742,9 @@ export function TobyHopApp() {
           </section>
         )}
 
-      {view === 'hop' && (
+      {view ===
+        'hop' && (
         <>
-          <section className="todays-pond-card">
-            <span className="today-label">
-              TODAY’S POND
-            </span>
-
-            <strong>
-              {todaysPond.emoji}{' '}
-              {todaysPond.name}
-            </strong>
-
-            <span>
-              {todaysPond.description}
-            </span>
-          </section>
-
           <section
             className={[
               'pond-card',
@@ -3356,7 +3812,6 @@ export function TobyHopApp() {
               >
                 <div className="pond-rainbow rainbow-back" />
                 <div className="pond-rainbow rainbow-front" />
-
                 <div className="rainbow-mist rainbow-mist-left" />
                 <div className="rainbow-mist rainbow-mist-right" />
               </div>
@@ -3368,7 +3823,8 @@ export function TobyHopApp() {
                 aria-hidden="true"
               >
                 {Array.from({
-                  length: 28,
+                  length:
+                    28,
                 }).map(
                   (_, index) => (
                     <span
@@ -3396,7 +3852,8 @@ export function TobyHopApp() {
                 aria-hidden="true"
               >
                 {Array.from({
-                  length: 34,
+                  length:
+                    34,
                 }).map(
                   (_, index) => (
                     <span
@@ -3415,7 +3872,9 @@ export function TobyHopApp() {
                         fontSize:
                           `${5 + ((index * 7) % 9)}px`,
                       }}
-                    />
+                    >
+                      ❄
+                    </span>
                   ),
                 )}
               </div>
@@ -3438,7 +3897,8 @@ export function TobyHopApp() {
                 aria-hidden="true"
               >
                 {Array.from({
-                  length: 16,
+                  length:
+                    16,
                 }).map(
                   (_, index) => (
                     <span
@@ -3555,12 +4015,9 @@ export function TobyHopApp() {
                   .join(' ')}
               >
                 <div className="frog-body" />
-
                 <div className="eye left" />
                 <div className="eye right" />
-
                 <div className="mouth" />
-
                 <div className="cheek c1" />
                 <div className="cheek c2" />
 
@@ -3655,7 +4112,8 @@ export function TobyHopApp() {
         </>
       )}
 
-      {view === 'leaders' && (
+      {view ===
+        'leaders' && (
         <LeaderboardPanel
           authenticated={
             authenticated
@@ -3681,7 +4139,8 @@ export function TobyHopApp() {
         />
       )}
 
-      {view === 'me' && (
+      {view ===
+        'me' && (
         <MePanel
           authenticated={
             authenticated
@@ -3722,12 +4181,57 @@ export function TobyHopApp() {
         />
       )}
 
+      <section
+        className="todays-pond-card pond-weather-card"
+        aria-label="Today’s pond conditions"
+      >
+        <div className="pond-weather-heading">
+          <div
+            className="pond-weather-emoji"
+            aria-hidden="true"
+          >
+            {todaysPond.emoji}
+          </div>
+
+          <div className="pond-weather-copy">
+            <span className="today-label">
+              TODAY’S POND CONDITIONS
+            </span>
+
+            <strong>
+              {todaysPond.name}
+            </strong>
+
+            <span>
+              {todaysPond.description}
+            </span>
+          </div>
+        </div>
+
+        <div className="pond-weather-conditions">
+          {pondConditions.map(
+            (condition) => (
+              <span
+                key={
+                  condition
+                }
+                className="pond-weather-condition"
+              >
+                {condition}
+              </span>
+            ),
+          )}
+        </div>
+      </section>
+
       <NoticeCard
         notice={
           notice
         }
         onDismiss={() =>
-          setNotice(null)
+          setNotice(
+            null,
+          )
         }
       />
 
