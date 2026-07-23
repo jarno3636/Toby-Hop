@@ -18,21 +18,20 @@ function getAuthorizationToken(
       'authorization',
     );
 
-  if (
-    !authorization ||
-    !authorization
-      .toLowerCase()
-      .startsWith('bearer ')
-  ) {
+  if (!authorization) {
     throw new Error(
       'Missing Farcaster authorization.',
     );
   }
 
+  const match =
+    authorization.match(
+      /^Bearer\s+(.+)$/i,
+    );
+
   const token =
-    authorization
-      .slice(7)
-      .trim();
+    match?.[1]?.trim() ??
+    '';
 
   if (!token) {
     throw new Error(
@@ -55,40 +54,73 @@ function normalizeDomain(
     );
   }
 
-  /*
-    Accept either:
-      toby-hop.vercel.app
+  let hostname =
+    trimmed;
 
-    or:
-      https://toby-hop.vercel.app
+  try {
+    const url =
+      trimmed.startsWith(
+        'http://',
+      ) ||
+      trimmed.startsWith(
+        'https://',
+      )
+        ? new URL(trimmed)
+        : new URL(
+            `https://${trimmed}`,
+          );
 
-    The Quick Auth verifier needs only the hostname.
-  */
-  if (
-    trimmed.startsWith(
-      'http://',
-    ) ||
-    trimmed.startsWith(
-      'https://',
-    )
-  ) {
-    return new URL(
-      trimmed,
-    ).host;
+    hostname =
+      url.hostname;
+  } catch {
+    throw new Error(
+      'The configured Farcaster authentication domain is invalid.',
+    );
   }
 
-  return trimmed
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
+  const normalized =
+    hostname
+      .trim()
+      .toLowerCase()
+      .replace(
+        /\.$/,
+        '',
+      );
+
+  if (!normalized) {
+    throw new Error(
+      'The Farcaster authentication domain is invalid.',
+    );
+  }
+
+  return normalized;
+}
+
+function getFirstHeaderValue(
+  value: string | null,
+): string | null {
+  const first =
+    value
+      ?.split(',')[0]
+      ?.trim();
+
+  return first || null;
 }
 
 function getExpectedDomain(
   request: Request,
 ): string {
   /*
-    This should be your permanent production Mini App
-    hostname, with no protocol and no trailing slash.
-  */
+   * Production should set this to the exact hostname used
+   * to launch the Mini App:
+   *
+   * FARCASTER_JWT_AUDIENCE=toby-hop.vercel.app
+   *
+   * Do not include:
+   * - https://
+   * - a path
+   * - a trailing slash
+   */
   const configuredAudience =
     process.env
       .FARCASTER_JWT_AUDIENCE;
@@ -99,6 +131,10 @@ function getExpectedDomain(
     );
   }
 
+  /*
+   * This is a reasonable secondary option when the public
+   * app URL is already configured.
+   */
   const configuredAppUrl =
     process.env
       .NEXT_PUBLIC_APP_URL;
@@ -110,14 +146,15 @@ function getExpectedDomain(
   }
 
   /*
-    This fallback helps local development, but production
-    should always set FARCASTER_JWT_AUDIENCE explicitly.
-  */
+   * Vercel and other reverse proxies commonly provide
+   * x-forwarded-host. Only use the first value.
+   */
   const forwardedHost =
-    request.headers
-      .get('x-forwarded-host')
-      ?.split(',')[0]
-      ?.trim();
+    getFirstHeaderValue(
+      request.headers.get(
+        'x-forwarded-host',
+      ),
+    );
 
   if (forwardedHost) {
     return normalizeDomain(
@@ -125,9 +162,48 @@ function getExpectedDomain(
     );
   }
 
-  return new URL(
-    request.url,
-  ).host;
+  const host =
+    getFirstHeaderValue(
+      request.headers.get(
+        'host',
+      ),
+    );
+
+  if (host) {
+    return normalizeDomain(
+      host,
+    );
+  }
+
+  return normalizeDomain(
+    new URL(
+      request.url,
+    ).hostname,
+  );
+}
+
+function isInvalidTokenError(
+  cause: unknown,
+): cause is Error {
+  return (
+    cause instanceof
+    Errors.InvalidTokenError
+  );
+}
+
+function getCauseMessage(
+  cause: unknown,
+): string {
+  if (
+    cause instanceof Error &&
+    cause.message
+  ) {
+    return cause.message;
+  }
+
+  return String(
+    cause,
+  );
 }
 
 export async function requireFarcasterUser(
@@ -152,14 +228,21 @@ export async function requireFarcasterUser(
         });
 
     const fid =
-      Number(payload.sub);
+      typeof payload.sub ===
+      'number'
+        ? payload.sub
+        : Number(
+            payload.sub,
+          );
 
     if (
-      !Number.isSafeInteger(fid) ||
+      !Number.isSafeInteger(
+        fid,
+      ) ||
       fid <= 0
     ) {
       throw new Error(
-        'The Farcaster token contains an invalid FID.',
+        'The verified Farcaster token contains an invalid FID.',
       );
     }
 
@@ -168,10 +251,11 @@ export async function requireFarcasterUser(
     };
   } catch (cause) {
     if (
-      cause instanceof
-      Errors.InvalidTokenError
+      isInvalidTokenError(
+        cause,
+      )
     ) {
-      console.error(
+      console.warn(
         'Invalid Farcaster Quick Auth token:',
         {
           domain,
@@ -181,7 +265,7 @@ export async function requireFarcasterUser(
       );
 
       throw new Error(
-        `Invalid Farcaster token for ${domain}.`,
+        'Farcaster authorization is invalid or expired.',
       );
     }
 
@@ -189,10 +273,21 @@ export async function requireFarcasterUser(
       'Farcaster Quick Auth verification failed:',
       {
         domain,
-        cause,
+        message:
+          getCauseMessage(
+            cause,
+          ),
       },
     );
 
-    throw cause;
+    if (
+      cause instanceof Error
+    ) {
+      throw cause;
+    }
+
+    throw new Error(
+      'Farcaster authorization could not be verified.',
+    );
   }
 }
