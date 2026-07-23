@@ -523,55 +523,125 @@ export function TobyHopApp() {
   );
 
   const authenticateWithFarcaster = useCallback(
-    async (
-      miniUser: MiniAppUser,
-      walletAddress: Address | null = null,
-    ): Promise<SessionResponse | null> => {
-      if (
-        typeof miniUser.fid !== 'number' ||
-        miniUser.fid <= 0
-      ) {
-        throw new Error(
-          'Invalid Farcaster user.',
+  async (
+    miniUser: MiniAppUser,
+    walletAddress: Address | null = null,
+  ): Promise<SessionResponse | null> => {
+    if (
+      typeof miniUser.fid !== 'number' ||
+      miniUser.fid <= 0
+    ) {
+      throw new Error(
+        'Invalid Farcaster user.',
+      );
+    }
+
+    if (farcasterAuthRef.current) {
+      return null;
+    }
+
+    farcasterAuthRef.current = true;
+    setFarcasterAuthLoading(true);
+
+    try {
+      async function requestWithToken(
+        force: boolean,
+      ): Promise<Response> {
+        const tokenResult =
+          await withTimeout(
+            sdk.quickAuth.getToken({
+              force,
+            }),
+            API_TIMEOUT_MS,
+            'Farcaster authorization timed out.',
+          );
+
+        const token =
+          tokenResult?.token;
+
+        if (
+          typeof token !== 'string' ||
+          !token.trim()
+        ) {
+          throw new Error(
+            'Farcaster did not provide an authorization token.',
+          );
+        }
+
+        return fetchWithTimeout(
+          '/api/auth/farcaster',
+          {
+            method: 'POST',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+              'content-type':
+                'application/json',
+              authorization:
+                `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              username:
+                miniUser.username ??
+                null,
+              displayName:
+                miniUser.displayName ??
+                null,
+              pfpUrl:
+                miniUser.pfpUrl ??
+                null,
+              walletAddress,
+            }),
+          },
+          API_TIMEOUT_MS,
         );
       }
 
-      if (farcasterAuthRef.current) {
-        return null;
+      let response =
+        await requestWithToken(
+          false,
+        );
+
+      /*
+       * Retry once with a newly issued token when the cached token
+       * is missing, expired, or rejected by the backend.
+       */
+      if (
+        response.status === 401
+      ) {
+        response =
+          await requestWithToken(
+            true,
+          );
       }
 
-      farcasterAuthRef.current = true;
-      setFarcasterAuthLoading(true);
+      const result =
+        await readJsonResponse<SessionResponse>(
+          response,
+          'Farcaster authentication failed.',
+        );
 
-      try {
-        const response =
-          await withTimeout(
-            sdk.quickAuth.fetch(
-              '/api/auth/farcaster',
-              {
-                method: 'POST',
-                headers: {
-                  'content-type':
-                    'application/json',
-                },
-                body: JSON.stringify({
-                  username:
-                    miniUser.username ??
-                    null,
-                  displayName:
-                    miniUser.displayName ??
-                    null,
-                  pfpUrl:
-                    miniUser.pfpUrl ??
-                    null,
-                  walletAddress,
-                }),
-              },
-            ),
-            API_TIMEOUT_MS,
-            'Farcaster authentication timed out.',
-          );
+      if (!result.authenticated) {
+        throw new Error(
+          result.error ||
+            result.message ||
+            'Farcaster authentication failed.',
+        );
+      }
 
+      applySessionResult(
+        result,
+        miniUser,
+      );
+
+      return result;
+    } finally {
+      farcasterAuthRef.current = false;
+      setFarcasterAuthLoading(false);
+    }
+  },
+  [applySessionResult],
+);
         const result =
           await readJsonResponse<SessionResponse>(
             response,
