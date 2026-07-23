@@ -15,35 +15,87 @@ import {
   http,
 } from 'wagmi';
 import { base } from 'wagmi/chains';
-import { injected } from 'wagmi/connectors';
+import {
+  injected,
+  walletConnect,
+} from 'wagmi/connectors';
+
+const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  'https://example.com';
+
+const walletConnectProjectId =
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
 export const wagmiConfig =
   createConfig({
-    chains: [base],
+    chains: [
+      base,
+    ],
 
     connectors: [
       /*
-        Keep this first. Inside Farcaster, Toby Hop will
-        prefer the host-provided EIP-1193 wallet.
+        Keep Farcaster first.
+
+        Inside a Farcaster Mini App, your existing
+        chooseConnector() logic will still select this connector.
       */
       farcasterMiniApp(),
 
       /*
-        Browser fallback for users opening Toby Hop
-        outside a Farcaster client.
+        Standalone browser support.
+
+        This does not replace or interfere with Farcaster.
       */
-      injected(),
+      ...(walletConnectProjectId
+        ? [
+            walletConnect({
+              projectId:
+                walletConnectProjectId,
+
+              showQrModal:
+                true,
+
+              metadata: {
+                name:
+                  'Toby Hop',
+
+                description:
+                  'One hop. Every day.',
+
+                url:
+                  appUrl,
+
+                icons: [
+                  `${appUrl}/icon.png`,
+                ],
+              },
+            }),
+          ]
+        : []),
+
+      /*
+        Desktop extensions and wallet browsers.
+
+        This remains a fallback only.
+      */
+      injected({
+        shimDisconnect:
+          true,
+      }),
     ],
 
     transports: {
-      [base.id]: http(
-        process.env
-          .NEXT_PUBLIC_BASE_RPC_URL ||
+      [base.id]:
+        http(
+          process.env
+            .NEXT_PUBLIC_BASE_RPC_URL ||
           'https://mainnet.base.org',
-      ),
+        ),
     },
 
-    ssr: true,
+    ssr:
+      true,
   });
 
 type ProvidersProps = {
@@ -59,14 +111,19 @@ export function Providers({
         new QueryClient({
           defaultOptions: {
             queries: {
-              staleTime: 15_000,
-              retry: 1,
+              staleTime:
+                15_000,
+
+              retry:
+                1,
+
               refetchOnWindowFocus:
                 false,
             },
 
             mutations: {
-              retry: 0,
+              retry:
+                0,
             },
           },
         }),
@@ -74,11 +131,15 @@ export function Providers({
 
   return (
     <WagmiProvider
-      config={wagmiConfig}
+      config={
+        wagmiConfig
+      }
       reconnectOnMount
     >
       <QueryClientProvider
-        client={queryClient}
+        client={
+          queryClient
+        }
       >
         {children}
       </QueryClientProvider>
