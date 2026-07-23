@@ -19,6 +19,27 @@ import {
   supabaseAdmin,
 } from '@/lib/supabase/admin';
 
+const QUOTE_ATTEMPTS = 5;
+const QUOTE_TIMEOUT_MS = 9_000;
+const QUOTE_RETRY_DELAY_MS = [
+  0,
+  600,
+  1_200,
+  2_000,
+  3_000,
+];
+
+function sleep(
+  milliseconds: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(
+      resolve,
+      milliseconds,
+    );
+  });
+}
+
 function normalizeAddress(
   value: string,
 ): string {
@@ -46,17 +67,127 @@ function buildExistingHopFilter(
   return filters.join(',');
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller =
+    new AbortController();
+
+  const timer =
+    setTimeout(
+      () => controller.abort(),
+      timeoutMs,
+    );
+
+  try {
+    return await fetch(
+      url,
+      {
+        ...init,
+        signal:
+          controller.signal,
+      },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isRetryableQuoteStatus(
+  status: number,
+): boolean {
+  return (
+    status === 408 ||
+    status === 409 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500
+  );
+}
+
+async function fetchQuoteWithRetry(
+  quoteUrl: string,
+  apiKey: string,
+): Promise<unknown> {
+  let lastMessage =
+    'Unable to get a swap quote.';
+
+  for (
+    let attempt = 0;
+    attempt < QUOTE_ATTEMPTS;
+    attempt += 1
+  ) {
+    const delay =
+      QUOTE_RETRY_DELAY_MS[attempt] ??
+      0;
+
+    if (delay > 0) {
+      await sleep(delay);
+    }
+
+    try {
+      const response =
+        await fetchWithTimeout(
+          quoteUrl,
+          {
+            method:
+              'GET',
+            headers: {
+              '0x-api-key':
+                apiKey,
+              '0x-version':
+                'v2',
+            },
+            cache:
+              'no-store',
+          },
+          QUOTE_TIMEOUT_MS,
+        );
+
+      const raw =
+        await response.text();
+
+      if (response.ok) {
+        if (!raw.trim()) {
+          throw new Error(
+            'The quote provider returned an empty response.',
+          );
+        }
+
+        return JSON.parse(raw) as unknown;
+      }
+
+      lastMessage =
+        raw.trim()
+          ? `Quote provider rejected the hop: ${raw}`
+          : `Quote provider rejected the hop with status ${response.status}.`;
+
+      if (
+        !isRetryableQuoteStatus(
+          response.status,
+        )
+      ) {
+        break;
+      }
+    } catch (cause) {
+      lastMessage =
+        cause instanceof Error
+          ? cause.message
+          : 'The quote provider did not respond.';
+    }
+  }
+
+  throw new Error(
+    lastMessage,
+  );
+}
+
 export async function GET(
   request: Request,
 ) {
   try {
-    /*
-      This route trusts the Toby Hop app session cookie.
-
-      Do not use requireFarcasterUser(request) here. That helper
-      requires a Farcaster Quick Auth Bearer token, which should
-      only be required by /api/auth/farcaster.
-    */
     const session =
       await readAppSession();
 
@@ -117,11 +248,6 @@ export async function GET(
         wallet,
       );
 
-    /*
-      Browser SIWE sessions always have an address.
-      Farcaster sessions get an address when TobyHopApp calls
-      /api/auth/farcaster with the connected wallet during hop.
-    */
     if (
       !session.address ||
       normalizeAddress(
@@ -175,6 +301,7 @@ export async function GET(
             session.fid,
           ),
         )
+        .limit(1)
         .maybeSingle();
 
     if (existingError) {
@@ -229,42 +356,56 @@ export async function GET(
           '300',
       });
 
-    const response =
-      await fetch(
-        `${baseUrl}/swap/allowance-holder/quote?${params.toString()}`,
-        {
-          method:
-            'GET',
-          headers: {
-            '0x-api-key':
-              apiKey,
-            '0x-version':
-              'v2',
-          },
-          cache:
-            'no-store',
-        },
-      );
-
-    if (!response.ok) {
-      const providerError =
-        await response.text();
-
-      throw new Error(
-        `Quote provider rejected the hop: ${providerError}`,
-      );
-    }
+    const quoteUrl =
+      `${baseUrl}/swap/allowance-holder/quote?${params.toString()}`;
 
     const quote =
-      await response.json();
+      await fetchQuoteWithRetry(
+        quoteUrl,
+        apiKey,
+      ) as {
+        allowanceTarget?: unknown;
+        buyAmount?: unknown;
+        issues?: {
+          allowance?: {
+            spender?: unknown;
+          };
+        };
+        transaction?: {
+          to?: unknown;
+          data?: unknown;
+          value?: unknown;
+          gas?: unknown;
+        };
+      };
 
     const allowanceTarget =
-      quote.issues?.allowance?.spender ||
+      quote.issues
+        ?.allowance
+        ?.spender ||
       quote.allowanceTarget;
 
     if (
-      !allowanceTarget ||
-      !quote.transaction
+      typeof allowanceTarget !== 'string' ||
+      !isAddress(
+        allowanceTarget,
+      )
+    ) {
+      throw new Error(
+        'The swap provider returned an invalid allowance target.',
+      );
+    }
+
+    if (
+      !quote.transaction ||
+      typeof quote.transaction.to !== 'string' ||
+      !isAddress(
+        quote.transaction.to,
+      ) ||
+      typeof quote.transaction.data !== 'string' ||
+      !quote.transaction.data.startsWith(
+        '0x',
+      )
     ) {
       throw new Error(
         'The swap provider returned an incomplete quote.',
@@ -273,11 +414,16 @@ export async function GET(
 
     return NextResponse.json(
       {
-        allowanceTarget,
+        allowanceTarget:
+          getAddress(
+            allowanceTarget,
+          ),
         transaction:
           quote.transaction,
         buyAmount:
-          quote.buyAmount,
+          typeof quote.buyAmount === 'string'
+            ? quote.buyAmount
+            : '0',
       },
       {
         headers: {
@@ -297,14 +443,25 @@ export async function GET(
         ? cause.message
         : 'Unable to quote hop.';
 
+    const lowered =
+      message.toLowerCase();
+
     const status =
-      message
-        .toLowerCase()
-        .includes(
-          'authentication',
-        )
+      lowered.includes(
+        'authentication',
+      )
         ? 401
-        : 400;
+        : lowered.includes(
+              'quote provider',
+            ) ||
+            lowered.includes(
+              'aborted',
+            ) ||
+            lowered.includes(
+              'did not respond',
+            )
+          ? 503
+          : 400;
 
     return NextResponse.json(
       {
