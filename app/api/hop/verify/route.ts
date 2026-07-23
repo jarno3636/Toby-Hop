@@ -1,6 +1,4 @@
-import {
-  NextResponse,
-} from 'next/server';
+import { NextResponse } from 'next/server';
 import {
   createPublicClient,
   decodeEventLog,
@@ -13,39 +11,26 @@ import {
   type Hash,
   type TransactionReceipt,
 } from 'viem';
-import {
-  base,
-} from 'viem/chains';
+import { base } from 'viem/chains';
 
-import {
-  readAppSession,
-} from '@/lib/auth/app-session';
+import { readAppSession } from '@/lib/auth/app-session';
 import {
   assertTokenConfig,
   HOP_USDC_ATOMIC,
   TOBY_ADDRESS,
   USDC_ADDRESS,
 } from '@/lib/contracts';
-import {
-  supabaseAdmin,
-} from '@/lib/supabase/admin';
-import {
-  buildCast,
-} from '@/lib/cast';
-import {
-  formatAtomic,
-} from '@/lib/format';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { buildCast } from '@/lib/cast';
+import { formatAtomic } from '@/lib/format';
 
-const publicClient =
-  createPublicClient({
-    chain:
-      base,
-    transport:
-      http(
-        process.env.BASE_RPC_URL ||
-          'https://mainnet.base.org',
-      ),
-  });
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(
+    process.env.BASE_RPC_URL ||
+      'https://mainnet.base.org',
+  ),
+});
 
 const RECEIPT_LOOKUP_ATTEMPTS = 8;
 const RECEIPT_LOOKUP_DELAY_MS = 1_250;
@@ -65,31 +50,78 @@ type VerifiedHopResult = {
 
 type ExistingHopRow = {
   id: string;
-  transaction_hash?: string | null;
-  input_amount_atomic?: string | null;
-  toby_amount_atomic?: string | null;
-  streak_after?: number | null;
-  total_hops_after?: number | null;
-  daily_position?: number | null;
-  title_after?: string | null;
-  cast_text?: string | null;
+  fid: number;
+  wallet_address: string;
+  transaction_hash: string;
+  input_amount_atomic: string | null;
+  toby_amount_atomic: string | null;
+  streak_after_hop: number | null;
+  total_hops_after: number | null;
+  daily_position: number | null;
+  cast_text: string | null;
 };
+
+type HopperProfile = {
+  fid: number;
+  display_name: string | null;
+  username: string | null;
+};
+
+type ParsedTransfers = {
+  usdcSpent: bigint;
+  tobyReceived: bigint;
+};
+
+type ApiErrorOptions = {
+  status?: number;
+  retryable?: boolean;
+};
+
+class ApiError extends Error {
+  readonly status: number;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    options: ApiErrorOptions = {},
+  ) {
+    super(message);
+
+    this.name = 'ApiError';
+    this.status = options.status ?? 400;
+    this.retryable =
+      options.retryable ?? false;
+  }
+}
+
+function noStoreHeaders() {
+  return {
+    'Cache-Control': 'no-store',
+  };
+}
+
+function jsonResponse(
+  body: unknown,
+  status = 200,
+) {
+  return NextResponse.json(body, {
+    status,
+    headers: noStoreHeaders(),
+  });
+}
 
 function sleep(
   milliseconds: number,
 ): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(
-      resolve,
-      milliseconds,
-    );
+    setTimeout(resolve, milliseconds);
   });
 }
 
 function normalizeAddress(
   value: string,
 ): string {
-  return value.toLowerCase();
+  return value.trim().toLowerCase();
 }
 
 function addressesMatch(
@@ -102,39 +134,65 @@ function addressesMatch(
   );
 }
 
-function getAllowedSwapTargets():
-string[] {
+function getAllowedSwapTargets(): string[] {
   return (
-    process.env
-      .ALLOWED_SWAP_TARGETS ||
-    ''
+    process.env.ALLOWED_SWAP_TARGETS ?? ''
   )
     .split(',')
-    .map((value) =>
-      value
-        .trim()
-        .toLowerCase(),
-    )
+    .map(normalizeAddress)
     .filter(Boolean);
+}
+
+function logDatabaseError(
+  label: string,
+  error: {
+    code?: string;
+    message?: string;
+    details?: string;
+    hint?: string;
+  },
+  context?: Record<string, unknown>,
+) {
+  console.error(label, {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+    ...context,
+  });
 }
 
 async function getReceiptSoon(
   hash: Hash,
 ): Promise<TransactionReceipt | null> {
   for (
-    let attempt = 0;
-    attempt < RECEIPT_LOOKUP_ATTEMPTS;
+    let attempt = 1;
+    attempt <= RECEIPT_LOOKUP_ATTEMPTS;
     attempt += 1
   ) {
     try {
-      const receipt =
-        await publicClient
-          .getTransactionReceipt({
+      return await publicClient
+        .getTransactionReceipt({
+          hash,
+        });
+    } catch (cause) {
+      if (
+        attempt ===
+        RECEIPT_LOOKUP_ATTEMPTS
+      ) {
+        console.warn(
+          'Transaction receipt was not available:',
+          {
             hash,
-          });
+            attempts:
+              RECEIPT_LOOKUP_ATTEMPTS,
+            cause,
+          },
+        );
 
-      return receipt;
-    } catch {
+        return null;
+      }
+
       await sleep(
         RECEIPT_LOOKUP_DELAY_MS,
       );
@@ -147,82 +205,271 @@ async function getReceiptSoon(
 async function getExistingHopByHash(
   transactionHash: Hash,
 ): Promise<ExistingHopRow | null> {
-  const db =
-    supabaseAdmin();
+  const db = supabaseAdmin();
 
-  const { data, error } =
-    await db
-      .from(
-        'toby_hops',
-      )
-      .select(
-        `
-          id,
-          transaction_hash,
-          input_amount_atomic,
-          toby_amount_atomic,
-          streak_after,
-          total_hops_after,
-          daily_position,
-          title_after,
-          cast_text
-        `,
-      )
-      .eq(
-        'transaction_hash',
-        transactionHash
-          .toLowerCase(),
-      )
-      .maybeSingle();
+  const { data, error } = await db
+    .from('toby_hops')
+    .select(`
+      id,
+      fid,
+      wallet_address,
+      transaction_hash,
+      input_amount_atomic,
+      toby_amount_atomic,
+      streak_after_hop,
+      total_hops_after,
+      daily_position,
+      cast_text
+    `)
+    .eq(
+      'transaction_hash',
+      transactionHash.toLowerCase(),
+    )
+    .maybeSingle();
 
   if (error) {
-    return null;
+    logDatabaseError(
+      'Unable to look up existing Toby Hop:',
+      error,
+      {
+        transactionHash,
+      },
+    );
+
+    throw new ApiError(
+      `Unable to check whether this hop was already recorded: ${error.message}`,
+      {
+        status: 500,
+      },
+    );
   }
 
   return data as ExistingHopRow | null;
 }
 
-function existingHopToResponse(
+async function getProfileByFid(
+  fid: number,
+): Promise<HopperProfile | null> {
+  const db = supabaseAdmin();
+
+  const { data, error } = await db
+    .from('toby_hop_users')
+    .select(`
+      fid,
+      display_name,
+      username
+    `)
+    .eq('fid', fid)
+    .maybeSingle();
+
+  if (error) {
+    logDatabaseError(
+      'Unable to load hopper profile by FID:',
+      error,
+      {
+        fid,
+      },
+    );
+
+    return null;
+  }
+
+  return data as HopperProfile | null;
+}
+
+async function getProfileByWallet(
+  walletAddress: string,
+): Promise<HopperProfile | null> {
+  const db = supabaseAdmin();
+
+  const {
+    data,
+    error,
+  } = await db
+    .from('toby_hop_users')
+    .select(`
+      fid,
+      display_name,
+      username
+    `)
+    .ilike(
+      'wallet_address',
+      walletAddress,
+    )
+    .order('fid', {
+      ascending: false,
+    })
+    .limit(1);
+
+  if (error) {
+    logDatabaseError(
+      'Unable to load hopper profile by wallet:',
+      error,
+      {
+        walletAddress,
+      },
+    );
+
+    return null;
+  }
+
+  return (
+    (data?.[0] as HopperProfile | undefined) ??
+    null
+  );
+}
+
+function parseTransfers(
+  receipt: TransactionReceipt,
+  walletAddress: Address,
+): ParsedTransfers {
+  const normalizedWallet =
+    normalizeAddress(walletAddress);
+
+  const normalizedUsdc =
+    normalizeAddress(USDC_ADDRESS);
+
+  const normalizedToby =
+    normalizeAddress(TOBY_ADDRESS);
+
+  let usdcSpent = 0n;
+  let tobyReceived = 0n;
+
+  for (const log of receipt.logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: erc20Abi,
+        data: log.data,
+        topics: log.topics,
+      });
+
+      if (
+        decoded.eventName !== 'Transfer'
+      ) {
+        continue;
+      }
+
+      const args = decoded.args as {
+        from: Address;
+        to: Address;
+        value: bigint;
+      };
+
+      const tokenAddress =
+        normalizeAddress(log.address);
+
+      if (
+        tokenAddress === normalizedUsdc &&
+        normalizeAddress(args.from) ===
+          normalizedWallet
+      ) {
+        usdcSpent += args.value;
+      }
+
+      if (
+        tokenAddress === normalizedToby &&
+        normalizeAddress(args.to) ===
+          normalizedWallet
+      ) {
+        tobyReceived += args.value;
+      }
+    } catch {
+      // Receipt logs may contain events from contracts
+      // unrelated to ERC-20 transfers.
+    }
+  }
+
+  return {
+    usdcSpent,
+    tobyReceived,
+  };
+}
+
+async function existingHopToResponse(
   hop: ExistingHopRow,
   transactionHash: Hash,
 ) {
-  const tobyAtomic =
-    hop.toby_amount_atomic ??
-    '0';
+  const profile =
+    await getProfileByFid(hop.fid);
 
-  const tobyDisplay =
-    formatAtomic(
-      BigInt(tobyAtomic),
-      18,
-      2,
-    );
+  const tobyAtomic =
+    hop.toby_amount_atomic ?? '0';
+
+  const tobyDisplay = formatAtomic(
+    BigInt(tobyAtomic),
+    18,
+    2,
+  );
+
+  const streak =
+    hop.streak_after_hop ?? 0;
+
+  const totalHops =
+    hop.total_hops_after ?? 0;
+
+  const dailyPosition =
+    hop.daily_position ?? 0;
+
+  /*
+   * The RPC returns title_after for a newly
+   * recorded hop, but the current toby_hops
+   * table does not store that value.
+   */
+  const title = 'Pond Hopper';
+
+  const castText =
+    hop.cast_text ??
+    buildCast({
+      displayName:
+        profile?.display_name ?? null,
+      username:
+        profile?.username ?? null,
+      streak,
+      totalHops,
+      tobyDisplay,
+      dailyPosition,
+      title,
+    });
 
   return {
-    hopId:
-      hop.id,
+    hopId: hop.id,
     tobyAtomic,
     tobyDisplay,
     usdcAtomic:
       hop.input_amount_atomic ??
       HOP_USDC_ATOMIC.toString(),
-    streak:
-      hop.streak_after ??
-      0,
-    totalHops:
-      hop.total_hops_after ??
-      0,
-    dailyPosition:
-      hop.daily_position ??
-      0,
-    title:
-      hop.title_after ??
-      'Pond Hopper',
-    castText:
-      hop.cast_text ??
-      'I hopped with Toby today.',
-    txHash:
-      transactionHash,
+    streak,
+    totalHops,
+    dailyPosition,
+    title,
+    castText,
+    txHash: transactionHash,
+    alreadyRecorded: true,
   };
+}
+
+async function updateHopCastText(
+  hopId: string,
+  castText: string,
+): Promise<void> {
+  const db = supabaseAdmin();
+
+  const { error } = await db
+    .from('toby_hops')
+    .update({
+      cast_text: castText,
+    })
+    .eq('id', hopId);
+
+  if (error) {
+    logDatabaseError(
+      'Unable to store hop cast text:',
+      error,
+      {
+        hopId,
+      },
+    );
+  }
 }
 
 export async function POST(
@@ -233,33 +480,19 @@ export async function POST(
       await readAppSession();
 
     if (!session) {
-      return NextResponse.json(
-        {
-          error:
-            'Authentication required.',
-        },
+      throw new ApiError(
+        'Authentication required.',
         {
           status: 401,
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
         },
       );
     }
 
     if (!session.address) {
-      return NextResponse.json(
-        {
-          error:
-            'The authenticated session is missing a linked wallet.',
-        },
+      throw new ApiError(
+        'The authenticated session is missing a linked wallet.',
         {
           status: 401,
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
         },
       );
     }
@@ -269,84 +502,34 @@ export async function POST(
     const body =
       (await request
         .json()
-        .catch(
-          () => ({}),
-        )) as VerifyHopBody;
+        .catch(() => ({}))) as VerifyHopBody;
 
     if (
       !body.txHash ||
-      !isHash(
-        body.txHash,
-      )
+      !isHash(body.txHash)
     ) {
-      return NextResponse.json(
-        {
-          error:
-            'Invalid transaction hash.',
-        },
-        {
-          status: 400,
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
-        },
+      throw new ApiError(
+        'Invalid transaction hash.',
+      );
+    }
+
+    if (
+      !body.walletAddress ||
+      !isAddress(body.walletAddress)
+    ) {
+      throw new ApiError(
+        'Invalid wallet address.',
       );
     }
 
     const transactionHash =
       body.txHash as Hash;
 
-    const existingHop =
-      await getExistingHopByHash(
-        transactionHash,
-      );
-
-    if (existingHop) {
-      return NextResponse.json(
-        existingHopToResponse(
-          existingHop,
-          transactionHash,
-        ),
-        {
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
-        },
-      );
-    }
-
-    if (
-      !body.walletAddress ||
-      !isAddress(
-        body.walletAddress,
-      )
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            'Invalid wallet address.',
-        },
-        {
-          status: 400,
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
-        },
-      );
-    }
-
     const submittedWallet =
-      getAddress(
-        body.walletAddress,
-      );
+      getAddress(body.walletAddress);
 
     const authenticatedWallet =
-      getAddress(
-        session.address,
-      );
+      getAddress(session.address);
 
     if (
       !addressesMatch(
@@ -354,18 +537,48 @@ export async function POST(
         authenticatedWallet,
       )
     ) {
-      return NextResponse.json(
-        {
-          error:
-            'The submitted wallet does not match the authenticated wallet.',
-        },
+      throw new ApiError(
+        'The submitted wallet does not match the authenticated wallet.',
         {
           status: 403,
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
         },
+      );
+    }
+
+    const normalizedWallet =
+      normalizeAddress(
+        authenticatedWallet,
+      );
+
+    /*
+     * Check for an already-recorded transaction
+     * before performing another RPC lookup.
+     */
+    const existingHop =
+      await getExistingHopByHash(
+        transactionHash,
+      );
+
+    if (existingHop) {
+      if (
+        !addressesMatch(
+          existingHop.wallet_address,
+          authenticatedWallet,
+        )
+      ) {
+        throw new ApiError(
+          'This transaction was already recorded for a different wallet.',
+          {
+            status: 403,
+          },
+        );
+      }
+
+      return jsonResponse(
+        await existingHopToResponse(
+          existingHop,
+          transactionHash,
+        ),
       );
     }
 
@@ -375,28 +588,19 @@ export async function POST(
       );
 
     if (!receipt) {
-      return NextResponse.json(
-        {
-          error:
-            'The transaction is not indexed yet. Try verifying again.',
-          retryable:
-            true,
-        },
+      throw new ApiError(
+        'The transaction is not indexed yet. Try verifying again.',
         {
           status: 425,
-          headers: {
-            'Cache-Control':
-              'no-store',
-          },
+          retryable: true,
         },
       );
     }
 
     if (
-      receipt.status !==
-      'success'
+      receipt.status !== 'success'
     ) {
-      throw new Error(
+      throw new ApiError(
         'The swap transaction failed.',
       );
     }
@@ -404,8 +608,7 @@ export async function POST(
     const transaction =
       await publicClient
         .getTransaction({
-          hash:
-            transactionHash,
+          hash: transactionHash,
         });
 
     if (
@@ -414,19 +617,20 @@ export async function POST(
         authenticatedWallet,
       )
     ) {
-      throw new Error(
+      throw new ApiError(
         'The authenticated wallet did not send this transaction.',
+        {
+          status: 403,
+        },
       );
     }
 
     const allowedTargets =
       getAllowedSwapTargets();
 
-    if (
-      allowedTargets.length > 0
-    ) {
+    if (allowedTargets.length > 0) {
       if (!transaction.to) {
-        throw new Error(
+        throw new ApiError(
           'The swap transaction has no target address.',
         );
       }
@@ -438,157 +642,114 @@ export async function POST(
           ),
         )
       ) {
-        throw new Error(
+        throw new ApiError(
           'The transaction used an unapproved swap target.',
+          {
+            status: 403,
+          },
         );
       }
     }
 
-    let usdcSpent =
-      0n;
-
-    let tobyReceived =
-      0n;
-
-    const normalizedWallet =
-      normalizeAddress(
-        authenticatedWallet,
-      );
-
-    const normalizedUsdc =
-      normalizeAddress(
-        USDC_ADDRESS,
-      );
-
-    const normalizedToby =
-      normalizeAddress(
-        TOBY_ADDRESS,
-      );
-
-    for (const log of receipt.logs) {
-      try {
-        const decoded =
-          decodeEventLog({
-            abi:
-              erc20Abi,
-            data:
-              log.data,
-            topics:
-              log.topics,
-          });
-
-        if (
-          decoded.eventName !==
-          'Transfer'
-        ) {
-          continue;
-        }
-
-        const args =
-          decoded.args as {
-            from: Address;
-            to: Address;
-            value: bigint;
-          };
-
-        const tokenAddress =
-          normalizeAddress(
-            log.address,
-          );
-
-        if (
-          tokenAddress ===
-            normalizedUsdc &&
-          normalizeAddress(
-            args.from,
-          ) === normalizedWallet
-        ) {
-          usdcSpent +=
-            args.value;
-        }
-
-        if (
-          tokenAddress ===
-            normalizedToby &&
-          normalizeAddress(
-            args.to,
-          ) === normalizedWallet
-        ) {
-          tobyReceived +=
-            args.value;
-        }
-      } catch {
-        // Ignore non ERC-20 Transfer logs.
-      }
-    }
+    const {
+      usdcSpent,
+      tobyReceived,
+    } = parseTransfers(
+      receipt,
+      authenticatedWallet,
+    );
 
     if (
-      usdcSpent <
-      HOP_USDC_ATOMIC
+      usdcSpent < HOP_USDC_ATOMIC
     ) {
-      throw new Error(
+      throw new ApiError(
         `The transaction did not exchange the required USDC amount. Found ${usdcSpent.toString()} atomic USDC.`,
       );
     }
 
-    if (
-      tobyReceived <= 0n
-    ) {
-      throw new Error(
+    if (tobyReceived <= 0n) {
+      throw new ApiError(
         'No TOBY transfer to the hopper wallet was found.',
       );
     }
 
-    const db =
-      supabaseAdmin();
+    const db = supabaseAdmin();
 
     const {
       data,
       error,
-    } =
-      await db.rpc(
-        'toby_hop_record_verified_wallet',
+    } = await db.rpc(
+      'toby_hop_record_verified_wallet',
+      {
+        p_wallet_address:
+          normalizedWallet,
+        p_transaction_hash:
+          transactionHash.toLowerCase(),
+        p_block_number:
+          receipt.blockNumber.toString(),
+        p_input_amount_atomic:
+          usdcSpent.toString(),
+        p_toby_amount_atomic:
+          tobyReceived.toString(),
+      },
+    );
+
+    if (error) {
+      logDatabaseError(
+        'toby_hop_record_verified_wallet RPC failed:',
+        error,
         {
-          p_wallet_address:
+          wallet:
             normalizedWallet,
-          p_transaction_hash:
-            transactionHash
-              .toLowerCase(),
-          p_block_number:
-            Number(
-              receipt.blockNumber,
-            ),
-          p_input_amount_atomic:
-            usdcSpent
-              .toString(),
-          p_toby_amount_atomic:
-            tobyReceived
-              .toString(),
+          transactionHash,
+          blockNumber:
+            receipt.blockNumber.toString(),
+          usdcSpent:
+            usdcSpent.toString(),
+          tobyReceived:
+            tobyReceived.toString(),
         },
       );
 
-    if (error) {
+      /*
+       * The RPC may have committed successfully
+       * even if the request encountered a later
+       * network or response error. Recover by hash.
+       */
       const recovered =
         await getExistingHopByHash(
           transactionHash,
         );
 
       if (recovered) {
-        return NextResponse.json(
-          existingHopToResponse(
+        if (
+          !addressesMatch(
+            recovered.wallet_address,
+            authenticatedWallet,
+          )
+        ) {
+          throw new ApiError(
+            'This transaction was recorded for a different wallet.',
+            {
+              status: 403,
+            },
+          );
+        }
+
+        return jsonResponse(
+          await existingHopToResponse(
             recovered,
             transactionHash,
           ),
-          {
-            headers: {
-              'Cache-Control':
-                'no-store',
-            },
-          },
         );
       }
 
-      throw error;
+      throw new ApiError(
+        `Unable to record the verified hop: ${error.message}`,
+        {
+          status: 500,
+        },
+      );
     }
 
     const result =
@@ -596,42 +757,34 @@ export async function POST(
         Array.isArray(data)
           ? data[0]
           : data
-      ) as
-        | VerifiedHopResult
-        | null;
+      ) as VerifiedHopResult | null;
 
-    if (!result) {
-      throw new Error(
-        'The database did not return a verified hop record.',
-      );
-    }
-
-    const {
-      data: profile,
-      error: profileError,
-    } =
-      await db
-        .from(
-          'toby_hop_users',
-        )
-        .select(
-          `
-            display_name,
-            username
-          `,
-        )
-        .eq(
-          'wallet_address',
-          normalizedWallet,
-        )
-        .maybeSingle();
-
-    if (profileError) {
+    if (
+      !result ||
+      !result.hop_id
+    ) {
       console.error(
-        'Unable to load hopper profile:',
-        profileError,
+        'Unexpected verified-hop RPC response:',
+        {
+          data,
+          transactionHash,
+          wallet:
+            normalizedWallet,
+        },
+      );
+
+      throw new ApiError(
+        'The database did not return a verified hop record.',
+        {
+          status: 500,
+        },
       );
     }
+
+    const profile =
+      await getProfileByWallet(
+        normalizedWallet,
+      );
 
     const tobyDisplay =
       formatAtomic(
@@ -640,127 +793,79 @@ export async function POST(
         2,
       );
 
+    const title =
+      result.title_after ||
+      'Pond Hopper';
+
     const castText =
       buildCast({
         displayName:
-          profile
-            ?.display_name ??
-          null,
+          profile?.display_name ?? null,
         username:
-          profile
-            ?.username ??
-          null,
+          profile?.username ?? null,
         streak:
-          result
-            .streak_after,
+          result.streak_after,
         totalHops:
-          result
-            .total_hops_after,
+          result.total_hops_after,
         tobyDisplay,
         dailyPosition:
-          result
-            .daily_position,
-        title:
-          result
-            .title_after,
+          result.daily_position,
+        title,
       });
 
-    const {
-      error: castUpdateError,
-    } =
-      await db
-        .from(
-          'toby_hops',
-        )
-        .update({
-          cast_text:
-            castText,
-        })
-        .eq(
-          'id',
-          result.hop_id,
-        );
-
-    if (castUpdateError) {
-      console.error(
-        'Unable to store cast text:',
-        castUpdateError,
-      );
-    }
-
-    return NextResponse.json(
-      {
-        hopId:
-          result.hop_id,
-        tobyAtomic:
-          tobyReceived
-            .toString(),
-        tobyDisplay,
-        usdcAtomic:
-          usdcSpent
-            .toString(),
-        streak:
-          result
-            .streak_after,
-        totalHops:
-          result
-            .total_hops_after,
-        dailyPosition:
-          result
-            .daily_position,
-        title:
-          result
-            .title_after,
-        castText,
-        txHash:
-          transactionHash,
-      },
-      {
-        headers: {
-          'Cache-Control':
-            'no-store',
-        },
-      },
+    await updateHopCastText(
+      result.hop_id,
+      castText,
     );
+
+    return jsonResponse({
+      hopId:
+        result.hop_id,
+      tobyAtomic:
+        tobyReceived.toString(),
+      tobyDisplay,
+      usdcAtomic:
+        usdcSpent.toString(),
+      streak:
+        result.streak_after,
+      totalHops:
+        result.total_hops_after,
+      dailyPosition:
+        result.daily_position,
+      title,
+      castText,
+      txHash:
+        transactionHash,
+      alreadyRecorded: false,
+    });
   } catch (cause) {
     console.error(
       'POST /api/hop/verify failed:',
       cause,
     );
 
+    if (cause instanceof ApiError) {
+      return jsonResponse(
+        {
+          error: cause.message,
+          retryable:
+            cause.retryable,
+        },
+        cause.status,
+      );
+    }
+
     const message =
       cause instanceof Error
         ? cause.message
         : 'Unable to verify hop.';
 
-    const lowered =
-      message.toLowerCase();
-
-    const status =
-      lowered.includes(
-        'authentication',
-      )
-        ? 401
-        : lowered.includes(
-              'not indexed',
-            )
-          ? 425
-          : 400;
-
-    return NextResponse.json(
+    return jsonResponse(
       {
-        error:
-          message,
-        retryable:
-          status === 425,
+        error: message,
+        retryable: false,
       },
-      {
-        status,
-        headers: {
-          'Cache-Control':
-            'no-store',
-        },
-      },
+      500,
     );
   }
 }
