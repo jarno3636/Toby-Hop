@@ -100,8 +100,22 @@ const API_TIMEOUT_MS = 15_000;
 const SDK_TIMEOUT_MS = 3_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRANSACTION_TIMEOUT_MS = 120_000;
-const VERIFICATION_TIMEOUT_MS = 150_000;
+const VERIFICATION_TIMEOUT_MS = 240_000;
 const INITIALIZATION_FALLBACK_MS = 12_000;
+const PENDING_HOP_STORAGE_KEY = 'toby_hop_pending_verification';
+const VERIFY_RETRY_DELAYS_MS = [
+  0,
+  2_500,
+  5_000,
+  10_000,
+  20_000,
+];
+
+type PendingHopRecord = {
+  txHash: Hex;
+  walletAddress: Address;
+  createdAt: number;
+};
 
 function isFarcasterConnector(connector: {
   id: string;
@@ -177,6 +191,82 @@ async function readJsonResponse<T>(
     return JSON.parse(raw) as T;
   } catch {
     throw new Error(fallbackError);
+  }
+}
+
+
+function sleep(
+  milliseconds: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(
+      resolve,
+      milliseconds,
+    );
+  });
+}
+
+function readPendingHop(): PendingHopRecord | null {
+  try {
+    const raw =
+      window.localStorage.getItem(
+        PENDING_HOP_STORAGE_KEY,
+      );
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed =
+      JSON.parse(raw) as Partial<PendingHopRecord>;
+
+    if (
+      typeof parsed.txHash !== 'string' ||
+      !parsed.txHash.startsWith('0x') ||
+      typeof parsed.walletAddress !== 'string' ||
+      !isAddress(parsed.walletAddress)
+    ) {
+      return null;
+    }
+
+    return {
+      txHash: parsed.txHash as Hex,
+      walletAddress: getAddress(parsed.walletAddress),
+      createdAt:
+        typeof parsed.createdAt === 'number'
+          ? parsed.createdAt
+          : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storePendingHop(
+  txHash: Hex,
+  walletAddress: Address,
+): void {
+  try {
+    window.localStorage.setItem(
+      PENDING_HOP_STORAGE_KEY,
+      JSON.stringify({
+        txHash,
+        walletAddress,
+        createdAt: Date.now(),
+      } satisfies PendingHopRecord),
+    );
+  } catch {
+    // Pending recovery is best effort.
+  }
+}
+
+function clearPendingHop(): void {
+  try {
+    window.localStorage.removeItem(
+      PENDING_HOP_STORAGE_KEY,
+    );
+  } catch {
+    // Best effort.
   }
 }
 
@@ -1357,6 +1447,194 @@ export function TobyHopApp() {
     }
   }
 
+
+  const applyCompletedHop = useCallback(
+    async (
+      completed: HopReceipt,
+    ) => {
+      clearPendingHop();
+      setReceipt(completed);
+
+      setUser(
+        (previous) => ({
+          ...previous,
+          today_hopped: true,
+          total_hops:
+            completed.totalHops,
+          current_streak:
+            completed.streak,
+          longest_streak:
+            Math.max(
+              previous.longest_streak,
+              completed.streak,
+            ),
+          big_pond_energy:
+            previous.big_pond_energy +
+            1,
+          current_title:
+            completed.title,
+          total_toby_atomic:
+            (
+              BigInt(
+                safeAtomicString(
+                  previous.total_toby_atomic,
+                ),
+              ) +
+              BigInt(
+                completed.tobyAtomic,
+              )
+            ).toString(),
+        }),
+      );
+
+      setNotice({
+        kind: 'success',
+        message:
+          'Today’s hop is safely recorded.',
+      });
+
+      try {
+        await loadAppSession(
+          farcasterUser,
+        );
+      } catch {
+        // Optimistic state is enough.
+      }
+
+      try {
+        await loadLeaderboard(
+          leaderKind,
+        );
+      } catch {
+        // Leaderboard refresh is optional.
+      }
+    },
+    [
+      farcasterUser,
+      leaderKind,
+      loadAppSession,
+      loadLeaderboard,
+    ],
+  );
+
+  const verifyHopWithRetry = useCallback(
+    async (
+      transactionHash: Hex,
+      wallet: Address,
+    ): Promise<HopReceipt> => {
+      let lastError:
+        Error | null = null;
+
+      for (
+        let attempt = 0;
+        attempt < VERIFY_RETRY_DELAYS_MS.length;
+        attempt += 1
+      ) {
+        const delay =
+          VERIFY_RETRY_DELAYS_MS[attempt] ??
+          0;
+
+        if (delay > 0) {
+          await sleep(delay);
+        }
+
+        try {
+          const response =
+            await fetchWithTimeout(
+              '/api/hop/verify',
+              {
+                method: 'POST',
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                  'content-type':
+                    'application/json',
+                  accept:
+                    'application/json',
+                },
+                body:
+                  JSON.stringify({
+                    txHash:
+                      transactionHash,
+                    walletAddress:
+                      wallet,
+                  }),
+              },
+              VERIFICATION_TIMEOUT_MS,
+            );
+
+          const raw =
+            await response.text();
+
+          if (response.ok) {
+            if (!raw.trim()) {
+              throw new Error(
+                'The hop verifier returned an empty response.',
+              );
+            }
+
+            return JSON.parse(
+              raw,
+            ) as HopReceipt;
+          }
+
+          const message =
+            parseApiError(
+              raw,
+              'Unable to verify the completed hop.',
+            );
+
+          lastError =
+            new Error(message);
+
+          /*
+            Do not retry auth or wallet mismatch errors. Those need
+            a fresh session, not another verifier attempt.
+          */
+          if (
+            response.status === 401 ||
+            response.status === 403
+          ) {
+            throw lastError;
+          }
+        } catch (cause) {
+          lastError =
+            cause instanceof Error
+              ? cause
+              : new Error(
+                  'Unable to verify the completed hop.',
+                );
+
+          const message =
+            lastError.message
+              .toLowerCase();
+
+          if (
+            message.includes(
+              'authenticated wallet',
+            ) ||
+            message.includes(
+              'submitted wallet',
+            ) ||
+            message.includes(
+              'authentication',
+            )
+          ) {
+            throw lastError;
+          }
+        }
+      }
+
+      throw (
+        lastError ??
+        new Error(
+          'Unable to verify the completed hop.',
+        )
+      );
+    },
+    [],
+  );
+
   async function performHop() {
     if (
       hopInProgressRef.current ||
@@ -1410,6 +1688,37 @@ export function TobyHopApp() {
             'The connected wallet does not match the signed-in wallet.',
           );
         }
+      }
+
+      const pendingHop =
+        readPendingHop();
+
+      if (
+        pendingHop &&
+        addressesMatch(
+          pendingHop.walletAddress,
+          wallet,
+        )
+      ) {
+        setHopState('verifying');
+
+        setNotice({
+          kind: 'success',
+          message:
+            'Found your completed transaction. Counting the hop now.',
+        });
+
+        const completed =
+          await verifyHopWithRetry(
+            pendingHop.txHash,
+            pendingHop.walletAddress,
+          );
+
+        await applyCompletedHop(
+          completed,
+        );
+
+        return;
       }
 
       setHopState('quoting');
@@ -1522,88 +1831,20 @@ export function TobyHopApp() {
 
       setHopState('verifying');
 
-      const verificationResponse =
-        await fetchWithTimeout(
-          '/api/hop/verify',
-          {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'content-type':
-                'application/json',
-            },
-            body:
-              JSON.stringify({
-                txHash:
-                  transactionHash,
-                walletAddress:
-                  wallet,
-              }),
-          },
-          VERIFICATION_TIMEOUT_MS,
-        );
-
-      const completed =
-        await readJsonResponse<HopReceipt>(
-          verificationResponse,
-          'Unable to verify the completed hop.',
-        );
-
-      setReceipt(completed);
-
-      setUser(
-        (previous) => ({
-          ...previous,
-          today_hopped: true,
-          total_hops:
-            completed.totalHops,
-          current_streak:
-            completed.streak,
-          longest_streak:
-            Math.max(
-              previous.longest_streak,
-              completed.streak,
-            ),
-          big_pond_energy:
-            previous.big_pond_energy +
-            1,
-          current_title:
-            completed.title,
-          total_toby_atomic:
-            (
-              BigInt(
-                safeAtomicString(
-                  previous.total_toby_atomic,
-                ),
-              ) +
-              BigInt(
-                completed.tobyAtomic,
-              )
-            ).toString(),
-        }),
+      storePendingHop(
+        transactionHash,
+        wallet,
       );
 
-      setNotice({
-        kind: 'success',
-        message:
-          'Today’s hop is safely recorded.',
-      });
-
-      try {
-        await loadAppSession(
-          farcasterUser,
+      const completed =
+        await verifyHopWithRetry(
+          transactionHash,
+          wallet,
         );
-      } catch {
-        // Optimistic state is enough.
-      }
 
-      try {
-        await loadLeaderboard(
-          leaderKind,
-        );
-      } catch {
-        // Leaderboard refresh is optional.
-      }
+      await applyCompletedHop(
+        completed,
+      );
 
       if (farcasterAvailable) {
         try {
