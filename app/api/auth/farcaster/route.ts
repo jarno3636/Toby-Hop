@@ -27,6 +27,29 @@ type FarcasterAuthBody = {
   walletAddress?: unknown;
 };
 
+type FarcasterUserRow = {
+  fid: number | string;
+  wallet_address: string | null;
+  username: string | null;
+  display_name: string | null;
+  pfp_url: string | null;
+  current_title: string | null;
+  total_hops: number | string | null;
+  current_streak: number | string | null;
+  longest_streak: number | string | null;
+  big_pond_energy: number | string | null;
+  total_toby_atomic: string | null;
+  total_usdc_atomic: string | null;
+  first_hop_at: string | null;
+  last_hop_at: string | null;
+  last_hop_day: string | null;
+  today_hopped: boolean | null;
+  rank: number | string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  [key: string]: unknown;
+};
+
 function cleanText(
   value: unknown,
   maxLength: number,
@@ -71,10 +94,69 @@ function firstRpcRow<T>(
   return value;
 }
 
+function normalizeAtomic(
+  value: unknown,
+): string {
+  if (
+    typeof value !== 'string'
+  ) {
+    return '0';
+  }
+
+  const cleaned =
+    value.trim();
+
+  if (
+    !/^\d+$/.test(cleaned)
+  ) {
+    return '0';
+  }
+
+  try {
+    return BigInt(
+      cleaned,
+    ).toString();
+  } catch {
+    return '0';
+  }
+}
+
+function normalizeUser(
+  value: FarcasterUserRow,
+): FarcasterUserRow {
+  return {
+    ...value,
+
+    fid:
+      Number(
+        value.fid,
+      ),
+
+    total_toby_atomic:
+      normalizeAtomic(
+        value.total_toby_atomic,
+      ),
+
+    total_usdc_atomic:
+      normalizeAtomic(
+        value.total_usdc_atomic,
+      ),
+  };
+}
+
+export const dynamic =
+  'force-dynamic';
+
 export async function POST(
   request: Request,
 ) {
   try {
+    /*
+      This validates the currently active Farcaster profile.
+
+      It must be called during app startup, not only when the
+      user attempts to hop.
+    */
     const auth =
       await requireFarcasterUser(
         request,
@@ -190,28 +272,27 @@ export async function POST(
     }
 
     /*
-      Always reload the complete persisted row.
+      Use the RPC that casts atomic numeric values to text.
 
-      Do not trust the RPC return value as the final user object,
-      because the RPC may have an outdated return shape and omit
-      newer fields such as total_toby_atomic.
+      Do not use:
+      .from('toby_hop_users').select('*')
+
+      Large PostgreSQL numeric values can otherwise arrive in
+      JavaScript scientific notation and lose precision.
     */
     const {
       data:
-        persistedUser,
+        persistedUserResult,
       error:
         persistedUserError,
     } =
-      await db
-        .from(
-          'toby_hop_users',
-        )
-        .select('*')
-        .eq(
-          'fid',
-          auth.fid,
-        )
-        .maybeSingle();
+      await db.rpc(
+        'toby_hop_get_user_by_fid',
+        {
+          p_fid:
+            auth.fid,
+        },
+      );
 
     if (persistedUserError) {
       console.error(
@@ -224,12 +305,32 @@ export async function POST(
       );
     }
 
+    const persistedUser =
+      firstRpcRow(
+        persistedUserResult as
+          | FarcasterUserRow
+          | FarcasterUserRow[]
+          | null,
+      );
+
     if (!persistedUser) {
       throw new Error(
         'The Farcaster user was not found after authentication.',
       );
     }
 
+    const normalizedUser =
+      normalizeUser(
+        persistedUser,
+      );
+
+    /*
+      Recreate the app session using the currently validated
+      Farcaster profile.
+
+      This replaces a stale cookie left behind by another
+      Farcaster profile.
+    */
     await createAppSession({
       authMethod:
         'farcaster',
@@ -260,12 +361,18 @@ export async function POST(
           walletAddress,
 
         user:
-          persistedUser,
+          normalizedUser,
       },
       {
         headers: {
           'Cache-Control':
             'no-store, no-cache, must-revalidate',
+
+          Pragma:
+            'no-cache',
+
+          Expires:
+            '0',
         },
       },
     );
@@ -310,6 +417,12 @@ export async function POST(
         headers: {
           'Cache-Control':
             'no-store, no-cache, must-revalidate',
+
+          Pragma:
+            'no-cache',
+
+          Expires:
+            '0',
         },
       },
     );
