@@ -11,6 +11,7 @@ import { createSiweMessage } from 'viem/siwe';
 import {
   useAccount,
   useConnect,
+  useConnections,
   useDisconnect,
   usePublicClient,
   useSendTransaction,
@@ -37,6 +38,9 @@ import {
 } from '@/components/toby-hop/LeaderboardPanel';
 import { MePanel } from '@/components/toby-hop/MePanel';
 import { NoticeCard } from '@/components/toby-hop/NoticeCard';
+import {
+  PondConditionsPanel,
+} from '@/components/toby-hop/PondConditionsPanel';
 import {
   erc20Abi,
   HOP_USDC_ATOMIC,
@@ -800,20 +804,6 @@ function buildSpecialPondState(
   };
 }
 
-function formatMoonPhase(
-  value: string,
-): string {
-  return value
-    .split('-')
-    .map(
-      (word) =>
-        word
-          ? `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`
-          : word,
-    )
-    .join(' ');
-}
-
 export function TobyHopApp() {
   const [view, setView] =
     useState<TobyHopView>(
@@ -975,92 +965,6 @@ export function TobyHopApp() {
       [todaysPond],
     );
 
-  const pondConditions =
-    useMemo(() => {
-      const conditions:
-        string[] = [
-          formatMoonPhase(
-            todaysPond.moonPhase,
-          ),
-        ];
-
-      if (
-        specialPond.rainbow
-      ) {
-        conditions.push(
-          'Rainbow',
-        );
-      }
-
-      if (
-        specialPond.rain
-      ) {
-        conditions.push(
-          'Rain',
-        );
-      }
-
-      if (
-        specialPond.snow
-      ) {
-        conditions.push(
-          'Snow',
-        );
-      }
-
-      if (
-        specialPond.shootingStars
-      ) {
-        conditions.push(
-          'Meteor Shower',
-        );
-      }
-
-      if (
-        specialPond.fireflies
-      ) {
-        conditions.push(
-          'Fireflies',
-        );
-      }
-
-      if (
-        specialPond.petals
-      ) {
-        conditions.push(
-          'Falling Petals',
-        );
-      }
-
-      if (
-        specialPond.autumn
-      ) {
-        conditions.push(
-          'Autumn Leaves',
-        );
-      }
-
-      if (
-        specialPond.lotus
-      ) {
-        conditions.push(
-          'Lotus Bloom',
-        );
-      }
-
-      if (
-        specialPond.golden
-      ) {
-        conditions.push(
-          'Golden Toby',
-        );
-      }
-
-      return conditions;
-    }, [
-      specialPond,
-      todaysPond.moonPhase,
-    ]);
 
   const particles =
     useMemo(() => {
@@ -1131,9 +1035,11 @@ export function TobyHopApp() {
   const {
     address,
     chainId,
-    isConnected,
   } =
     useAccount();
+
+  const connections =
+    useConnections();
 
   const {
     connectors,
@@ -1182,9 +1088,64 @@ export function TobyHopApp() {
     hopState !==
     'idle';
 
+  const activeConnection =
+    useMemo(
+      () =>
+        connections.find(
+          (connection) =>
+            connection.accounts.some(
+              (account) =>
+                isAddress(
+                  account,
+                ),
+            ),
+        ) ?? null,
+      [connections],
+    );
+
+  const connectedAccount =
+    useMemo(() => {
+      if (
+        address &&
+        isAddress(
+          address,
+        )
+      ) {
+        return getAddress(
+          address,
+        );
+      }
+
+      const account =
+        activeConnection
+          ?.accounts.find(
+            (candidate) =>
+              isAddress(
+                candidate,
+              ),
+          );
+
+      return account &&
+        isAddress(
+          account,
+        )
+        ? getAddress(
+            account,
+          )
+        : null;
+    }, [
+      activeConnection,
+      address,
+    ]);
+
+  const walletConnected =
+    Boolean(
+      connectedAccount,
+    );
+
   const walletMatchesSession =
     addressesMatch(
-      address,
+      connectedAccount,
       authenticatedAddress,
     );
 
@@ -1197,7 +1158,7 @@ export function TobyHopApp() {
       ?.username ||
     shortenAddress(
       authenticatedAddress ??
-      address,
+      connectedAccount,
     );
 
   const profilePfp =
@@ -1949,9 +1910,9 @@ export function TobyHopApp() {
       authMethod !==
         'siwe' ||
       !authenticatedAddress ||
-      !address ||
+      !connectedAccount ||
       addressesMatch(
-        address,
+        connectedAccount,
         authenticatedAddress,
       )
     ) {
@@ -1970,10 +1931,10 @@ export function TobyHopApp() {
         'The connected wallet changed. Sign in again to protect your pond record.',
     });
   }, [
-    address,
     authenticated,
     authenticatedAddress,
     authMethod,
+    connectedAccount,
     hostMode,
     resetAppSession,
   ]);
@@ -2106,19 +2067,63 @@ export function TobyHopApp() {
     if (
       isFarcasterMiniApp
     ) {
-      const farcasterConnector =
+      return (
         connectors.find(
           isFarcasterConnector,
-        );
-
-      if (
-        farcasterConnector
-      ) {
-        return farcasterConnector;
-      }
+        ) ??
+        null
+      );
     }
 
-    const injected =
+    const walletConnectConnector =
+      connectors.find(
+        (connector) => {
+          const value =
+            `${connector.id} ${connector.name}`
+              .toLowerCase();
+
+          return (
+            value.includes(
+              'walletconnect',
+            ) ||
+            value.includes(
+              'wallet connect',
+            )
+          );
+        },
+      );
+
+    if (
+      walletConnectConnector
+    ) {
+      return walletConnectConnector;
+    }
+
+    const baseAccountConnector =
+      connectors.find(
+        (connector) => {
+          const value =
+            `${connector.id} ${connector.name}`
+              .toLowerCase();
+
+          return (
+            value.includes(
+              'base account',
+            ) ||
+            value.includes(
+              'coinbase',
+            )
+          );
+        },
+      );
+
+    if (
+      baseAccountConnector
+    ) {
+      return baseAccountConnector;
+    }
+
+    const injectedConnector =
       connectors.find(
         (connector) => {
           const value =
@@ -2138,26 +2143,113 @@ export function TobyHopApp() {
         },
       );
 
-    return (
-      injected ??
-      connectors[0]
-    );
+    const hasInjectedProvider =
+      typeof window !==
+        'undefined' &&
+      Boolean(
+        (
+          window as Window & {
+            ethereum?: unknown;
+          }
+        ).ethereum,
+      );
+
+    if (
+      injectedConnector &&
+      hasInjectedProvider
+    ) {
+      return injectedConnector;
+    }
+
+    return null;
   }
 
-  async function getConnectedWallet():
-  Promise<Address> {
+  function recoverConnectedAccount():
+  Address | null {
     if (
-      isConnected &&
-      address
+      address &&
+      isAddress(
+        address,
+      )
     ) {
       return getAddress(
         address,
       );
     }
 
-    setHopState(
-      'connecting',
-    );
+    for (
+      const connection of
+        connections
+    ) {
+      const account =
+        connection.accounts.find(
+          (candidate) =>
+            isAddress(
+              candidate,
+            ),
+        );
+
+      if (
+        account &&
+        isAddress(
+          account,
+        )
+      ) {
+        return getAddress(
+          account,
+        );
+      }
+    }
+
+    return null;
+  }
+
+  async function readConnectorAccount(
+    connector:
+      ReturnType<
+        typeof chooseConnector
+      >,
+  ): Promise<Address | null> {
+    if (!connector) {
+      return null;
+    }
+
+    try {
+      const accounts =
+        await connector
+          .getAccounts();
+
+      const account =
+        accounts.find(
+          (candidate) =>
+            isAddress(
+              candidate,
+            ),
+        );
+
+      return account &&
+        isAddress(
+          account,
+        )
+        ? getAddress(
+            account,
+          )
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function getConnectedWallet():
+  Promise<Address> {
+    const existingAccount =
+      recoverConnectedAccount();
+
+    if (
+      existingAccount
+    ) {
+      return existingAccount;
+    }
 
     const connector =
       chooseConnector();
@@ -2165,42 +2257,121 @@ export function TobyHopApp() {
     if (!connector) {
       throw new Error(
         isFarcasterMiniApp
-          ? 'No Farcaster wallet connector was found.'
-          : 'No compatible wallet connector was found.',
+          ? 'The Farcaster wallet connector is unavailable. Close and reopen Toby Hop from Farcaster.'
+          : 'No supported wallet connection is available. Open Toby Hop in a wallet browser or connect through WalletConnect.',
       );
     }
-
-    const connection =
-      await withTimeout(
-        connectAsync({
-          connector,
-
-          chainId:
-            base.id,
-        }),
-
-        CONNECT_TIMEOUT_MS,
-
-        'Wallet connection timed out.',
-      );
-
-    const wallet =
-      connection.accounts[0];
 
     if (
-      !wallet ||
-      !isAddress(
-        wallet,
-      )
+      connectPending
     ) {
+      for (
+        let attempt = 0;
+        attempt < 8;
+        attempt += 1
+      ) {
+        await sleep(
+          200,
+        );
+
+        const pendingAccount =
+          await readConnectorAccount(
+            connector,
+          );
+
+        if (
+          pendingAccount
+        ) {
+          return pendingAccount;
+        }
+      }
+
       throw new Error(
-        'No Base wallet was returned.',
+        'Wallet connection is already in progress.',
       );
     }
 
-    return getAddress(
-      wallet,
+    setHopState(
+      'connecting',
     );
+
+    try {
+      const connection =
+        await withTimeout(
+          connectAsync({
+            connector,
+
+            chainId:
+              base.id,
+          }),
+
+          CONNECT_TIMEOUT_MS,
+
+          'Wallet connection timed out.',
+        );
+
+      const wallet =
+        connection.accounts.find(
+          (account) =>
+            isAddress(
+              account,
+            ),
+        );
+
+      if (
+        !wallet ||
+        !isAddress(
+          wallet,
+        )
+      ) {
+        throw new Error(
+          'No Base wallet was returned.',
+        );
+      }
+
+      return getAddress(
+        wallet,
+      );
+    } catch (cause) {
+      const message =
+        cause instanceof
+          Error
+          ? cause.message
+              .toLowerCase()
+          : '';
+
+      if (
+        message.includes(
+          'connector already connected',
+        ) ||
+        message.includes(
+          'already connected',
+        )
+      ) {
+        for (
+          let attempt = 0;
+          attempt < 8;
+          attempt += 1
+        ) {
+          await sleep(
+            200,
+          );
+
+          const recovered =
+            await readConnectorAccount(
+              connector,
+            );
+
+          if (
+            recovered
+          ) {
+            return recovered;
+          }
+        }
+      }
+
+      throw cause;
+    }
   }
 
   async function ensureBaseChain() {
@@ -2225,7 +2396,11 @@ export function TobyHopApp() {
     }
   }
 
-  async function signInWithWallet():
+  async function signInWithWallet(
+    providedWallet:
+      Address | null =
+      null,
+  ):
   Promise<Address | null> {
     if (
       browserAuthRef.current
@@ -2242,6 +2417,7 @@ export function TobyHopApp() {
 
     try {
       const wallet =
+        providedWallet ??
         await getConnectedWallet();
 
       setHopState(
@@ -2482,14 +2658,7 @@ export function TobyHopApp() {
         await authenticateWithFarcaster(
           farcasterUser,
 
-          address &&
-          isAddress(
-            address,
-          )
-            ? getAddress(
-                address,
-              )
-            : null,
+          recoverConnectedAccount(),
         );
 
       if (
@@ -3020,7 +3189,9 @@ export function TobyHopApp() {
         !walletMatchesSession
       ) {
         const signedIn =
-          await signInWithWallet();
+          await signInWithWallet(
+            wallet,
+          );
 
         if (!signedIn) {
           return;
@@ -3462,10 +3633,15 @@ export function TobyHopApp() {
       'signing-in'
       ? 'SIGNING IN'
       : hopState ===
-          'connecting' ||
-        connectPending
+            'connecting' ||
+          connectPending
         ? 'CONNECTING'
-        : 'CONNECT WALLET';
+        : walletConnected &&
+            !authenticated
+          ? 'SIGN IN TO CONTINUE'
+          : authenticated
+            ? 'WALLET CONNECTED'
+            : 'CONNECT WALLET';
 
   if (loading) {
     return (
@@ -3556,8 +3732,8 @@ export function TobyHopApp() {
         </div>
 
         {!isFarcasterMiniApp &&
-          isConnected &&
-          address && (
+          walletConnected &&
+          connectedAccount && (
             <button
               type="button"
               className="wallet-pill"
@@ -3589,7 +3765,7 @@ export function TobyHopApp() {
               />
 
               {shortenAddress(
-                address,
+                connectedAccount,
               )}
             </button>
           )}
@@ -4181,48 +4357,35 @@ export function TobyHopApp() {
         />
       )}
 
-      <section
-        className="todays-pond-card pond-weather-card"
-        aria-label="Today’s pond conditions"
-      >
-        <div className="pond-weather-heading">
-          <div
-            className="pond-weather-emoji"
-            aria-hidden="true"
-          >
-            {todaysPond.emoji}
-          </div>
+      {view ===
+        'hop' && (
+        <PondConditionsPanel
+          pond={{
+            id:
+              todaysPond.id,
 
-          <div className="pond-weather-copy">
-            <span className="today-label">
-              TODAY’S POND CONDITIONS
-            </span>
+            name:
+              todaysPond.name,
 
-            <strong>
-              {todaysPond.name}
-            </strong>
+            description:
+              todaysPond.description,
 
-            <span>
-              {todaysPond.description}
-            </span>
-          </div>
-        </div>
+            emoji:
+              todaysPond.emoji,
 
-        <div className="pond-weather-conditions">
-          {pondConditions.map(
-            (condition) => (
-              <span
-                key={
-                  condition
-                }
-                className="pond-weather-condition"
-              >
-                {condition}
-              </span>
-            ),
-          )}
-        </div>
-      </section>
+            moonPhase:
+              todaysPond.moonPhase,
+
+            goldenToby:
+              Boolean(
+                todaysPond.goldenToby,
+              ),
+          }}
+          conditions={
+            specialPond
+          }
+        />
+      )}
 
       <NoticeCard
         notice={
