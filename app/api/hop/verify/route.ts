@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+
 import {
   createPublicClient,
   decodeEventLog,
@@ -11,29 +12,49 @@ import {
   type Hash,
   type TransactionReceipt,
 } from 'viem';
+
 import { base } from 'viem/chains';
 
-import { readAppSession } from '@/lib/auth/app-session';
+import {
+  readAppSession,
+} from '@/lib/auth/app-session';
+
 import {
   assertTokenConfig,
   HOP_USDC_ATOMIC,
   TOBY_ADDRESS,
   USDC_ADDRESS,
 } from '@/lib/contracts';
-import { supabaseAdmin } from '@/lib/supabase/admin';
-import { buildCast } from '@/lib/cast';
-import { formatAtomic } from '@/lib/format';
 
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http(
-    process.env.BASE_RPC_URL ||
-      'https://mainnet.base.org',
-  ),
-});
+import {
+  supabaseAdmin,
+} from '@/lib/supabase/admin';
 
-const RECEIPT_LOOKUP_ATTEMPTS = 8;
-const RECEIPT_LOOKUP_DELAY_MS = 1_250;
+import {
+  buildCast,
+} from '@/lib/cast';
+
+import {
+  formatAtomic,
+} from '@/lib/format';
+
+export const dynamic = 'force-dynamic';
+
+const publicClient =
+  createPublicClient({
+    chain: base,
+
+    transport: http(
+      process.env.BASE_RPC_URL ||
+        'https://mainnet.base.org',
+    ),
+  });
+
+const RECEIPT_LOOKUP_ATTEMPTS =
+  8;
+
+const RECEIPT_LOOKUP_DELAY_MS =
+  1_250;
 
 type VerifyHopBody = {
   txHash?: string;
@@ -87,16 +108,23 @@ class ApiError extends Error {
   ) {
     super(message);
 
-    this.name = 'ApiError';
-    this.status = options.status ?? 400;
+    this.name =
+      'ApiError';
+
+    this.status =
+      options.status ??
+      400;
+
     this.retryable =
-      options.retryable ?? false;
+      options.retryable ??
+      false;
   }
 }
 
 function noStoreHeaders() {
   return {
-    'Cache-Control': 'no-store',
+    'Cache-Control':
+      'no-store, no-cache, must-revalidate',
   };
 }
 
@@ -104,24 +132,35 @@ function jsonResponse(
   body: unknown,
   status = 200,
 ) {
-  return NextResponse.json(body, {
-    status,
-    headers: noStoreHeaders(),
-  });
+  return NextResponse.json(
+    body,
+    {
+      status,
+      headers:
+        noStoreHeaders(),
+    },
+  );
 }
 
 function sleep(
   milliseconds: number,
 ): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
+  return new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        milliseconds,
+      );
+    },
+  );
 }
 
 function normalizeAddress(
   value: string,
 ): string {
-  return value.trim().toLowerCase();
+  return value
+    .trim()
+    .toLowerCase();
 }
 
 function addressesMatch(
@@ -134,32 +173,113 @@ function addressesMatch(
   );
 }
 
-function getAllowedSwapTargets(): string[] {
+function getPositiveFid(
+  value: unknown,
+): number | null {
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+function getAllowedSwapTargets():
+  string[] {
   return (
-    process.env.ALLOWED_SWAP_TARGETS ?? ''
+    process.env
+      .ALLOWED_SWAP_TARGETS ??
+    ''
   )
     .split(',')
-    .map(normalizeAddress)
+    .map(
+      normalizeAddress,
+    )
     .filter(Boolean);
 }
 
 function logDatabaseError(
   label: string,
+
   error: {
     code?: string;
     message?: string;
     details?: string;
     hint?: string;
   },
-  context?: Record<string, unknown>,
+
+  context?: Record<
+    string,
+    unknown
+  >,
 ) {
-  console.error(label, {
-    code: error.code,
-    message: error.message,
-    details: error.details,
-    hint: error.hint,
-    ...context,
-  });
+  console.error(
+    label,
+    {
+      code:
+        error.code,
+
+      message:
+        error.message,
+
+      details:
+        error.details,
+
+      hint:
+        error.hint,
+
+      ...context,
+    },
+  );
+}
+
+async function linkCanonicalIdentity(
+  fid: number,
+  walletAddress: string,
+): Promise<void> {
+  const db =
+    supabaseAdmin();
+
+  const {
+    error,
+  } =
+    await db.rpc(
+      'toby_hop_link_wallet_identity',
+      {
+        p_fid:
+          fid,
+
+        p_wallet_address:
+          normalizeAddress(
+            walletAddress,
+          ),
+      },
+    );
+
+  if (error) {
+    logDatabaseError(
+      'Unable to link wallet identity to Farcaster profile:',
+      error,
+      {
+        fid,
+        walletAddress:
+          normalizeAddress(
+            walletAddress,
+          ),
+      },
+    );
+
+    throw new ApiError(
+      `Unable to link the wallet to the Farcaster profile: ${error.message}`,
+      {
+        status:
+          500,
+      },
+    );
+  }
 }
 
 async function getReceiptSoon(
@@ -167,7 +287,8 @@ async function getReceiptSoon(
 ): Promise<TransactionReceipt | null> {
   for (
     let attempt = 1;
-    attempt <= RECEIPT_LOOKUP_ATTEMPTS;
+    attempt <=
+      RECEIPT_LOOKUP_ATTEMPTS;
     attempt += 1
   ) {
     try {
@@ -184,8 +305,10 @@ async function getReceiptSoon(
           'Transaction receipt was not available:',
           {
             hash,
+
             attempts:
               RECEIPT_LOOKUP_ATTEMPTS,
+
             cause,
           },
         );
@@ -205,27 +328,35 @@ async function getReceiptSoon(
 async function getExistingHopByHash(
   transactionHash: Hash,
 ): Promise<ExistingHopRow | null> {
-  const db = supabaseAdmin();
+  const db =
+    supabaseAdmin();
 
-  const { data, error } = await db
-    .from('toby_hops')
-    .select(`
-      id,
-      fid,
-      wallet_address,
-      transaction_hash,
-      input_amount_atomic,
-      toby_amount_atomic,
-      streak_after_hop,
-      total_hops_after,
-      daily_position,
-      cast_text
-    `)
-    .eq(
-      'transaction_hash',
-      transactionHash.toLowerCase(),
-    )
-    .maybeSingle();
+  const {
+    data,
+    error,
+  } =
+    await db
+      .from(
+        'toby_hops',
+      )
+      .select(`
+        id,
+        fid,
+        wallet_address,
+        transaction_hash,
+        input_amount_atomic,
+        toby_amount_atomic,
+        streak_after_hop,
+        total_hops_after,
+        daily_position,
+        cast_text
+      `)
+      .eq(
+        'transaction_hash',
+        transactionHash
+          .toLowerCase(),
+      )
+      .maybeSingle();
 
   if (error) {
     logDatabaseError(
@@ -239,28 +370,43 @@ async function getExistingHopByHash(
     throw new ApiError(
       `Unable to check whether this hop was already recorded: ${error.message}`,
       {
-        status: 500,
+        status:
+          500,
       },
     );
   }
 
-  return data as ExistingHopRow | null;
+  return (
+    data as
+      | ExistingHopRow
+      | null
+  );
 }
 
 async function getProfileByFid(
   fid: number,
 ): Promise<HopperProfile | null> {
-  const db = supabaseAdmin();
+  const db =
+    supabaseAdmin();
 
-  const { data, error } = await db
-    .from('toby_hop_users')
-    .select(`
-      fid,
-      display_name,
-      username
-    `)
-    .eq('fid', fid)
-    .maybeSingle();
+  const {
+    data,
+    error,
+  } =
+    await db
+      .from(
+        'toby_hop_users',
+      )
+      .select(`
+        fid,
+        display_name,
+        username
+      `)
+      .eq(
+        'fid',
+        fid,
+      )
+      .maybeSingle();
 
   if (error) {
     logDatabaseError(
@@ -274,32 +420,44 @@ async function getProfileByFid(
     return null;
   }
 
-  return data as HopperProfile | null;
+  return (
+    data as
+      | HopperProfile
+      | null
+  );
 }
 
 async function getProfileByWallet(
   walletAddress: string,
 ): Promise<HopperProfile | null> {
-  const db = supabaseAdmin();
+  const db =
+    supabaseAdmin();
 
   const {
     data,
     error,
-  } = await db
-    .from('toby_hop_users')
-    .select(`
-      fid,
-      display_name,
-      username
-    `)
-    .ilike(
-      'wallet_address',
-      walletAddress,
-    )
-    .order('fid', {
-      ascending: false,
-    })
-    .limit(1);
+  } =
+    await db
+      .from(
+        'toby_hop_users',
+      )
+      .select(`
+        fid,
+        display_name,
+        username
+      `)
+      .ilike(
+        'wallet_address',
+        walletAddress,
+      )
+      .order(
+        'fid',
+        {
+          ascending:
+            false,
+        },
+      )
+      .limit(1);
 
   if (error) {
     logDatabaseError(
@@ -314,7 +472,11 @@ async function getProfileByWallet(
   }
 
   return (
-    (data?.[0] as HopperProfile | undefined) ??
+    (
+      data?.[0] as
+        | HopperProfile
+        | undefined
+    ) ??
     null
   );
 }
@@ -324,58 +486,87 @@ function parseTransfers(
   walletAddress: Address,
 ): ParsedTransfers {
   const normalizedWallet =
-    normalizeAddress(walletAddress);
+    normalizeAddress(
+      walletAddress,
+    );
 
   const normalizedUsdc =
-    normalizeAddress(USDC_ADDRESS);
+    normalizeAddress(
+      USDC_ADDRESS,
+    );
 
   const normalizedToby =
-    normalizeAddress(TOBY_ADDRESS);
+    normalizeAddress(
+      TOBY_ADDRESS,
+    );
 
-  let usdcSpent = 0n;
-  let tobyReceived = 0n;
+  let usdcSpent =
+    0n;
 
-  for (const log of receipt.logs) {
+  let tobyReceived =
+    0n;
+
+  for (
+    const log of
+    receipt.logs
+  ) {
     try {
-      const decoded = decodeEventLog({
-        abi: erc20Abi,
-        data: log.data,
-        topics: log.topics,
-      });
+      const decoded =
+        decodeEventLog({
+          abi:
+            erc20Abi,
+
+          data:
+            log.data,
+
+          topics:
+            log.topics,
+        });
 
       if (
-        decoded.eventName !== 'Transfer'
+        decoded.eventName !==
+        'Transfer'
       ) {
         continue;
       }
 
-      const args = decoded.args as {
-        from: Address;
-        to: Address;
-        value: bigint;
-      };
+      const args =
+        decoded.args as {
+          from: Address;
+          to: Address;
+          value: bigint;
+        };
 
       const tokenAddress =
-        normalizeAddress(log.address);
+        normalizeAddress(
+          log.address,
+        );
 
       if (
-        tokenAddress === normalizedUsdc &&
-        normalizeAddress(args.from) ===
+        tokenAddress ===
+          normalizedUsdc &&
+        normalizeAddress(
+          args.from,
+        ) ===
           normalizedWallet
       ) {
-        usdcSpent += args.value;
+        usdcSpent +=
+          args.value;
       }
 
       if (
-        tokenAddress === normalizedToby &&
-        normalizeAddress(args.to) ===
+        tokenAddress ===
+          normalizedToby &&
+        normalizeAddress(
+          args.to,
+        ) ===
           normalizedWallet
       ) {
-        tobyReceived += args.value;
+        tobyReceived +=
+          args.value;
       }
     } catch {
-      // Receipt logs may contain events from contracts
-      // unrelated to ERC-20 transfers.
+      // Ignore non-ERC-20 logs.
     }
   }
 
@@ -390,40 +581,51 @@ async function existingHopToResponse(
   transactionHash: Hash,
 ) {
   const profile =
-    await getProfileByFid(hop.fid);
+    await getProfileByFid(
+      hop.fid,
+    );
 
   const tobyAtomic =
-    hop.toby_amount_atomic ?? '0';
+    hop.toby_amount_atomic ??
+    '0';
 
-  const tobyDisplay = formatAtomic(
-    BigInt(tobyAtomic),
-    18,
-    2,
-  );
+  const tobyDisplay =
+    formatAtomic(
+      BigInt(
+        tobyAtomic,
+      ),
+      18,
+      2,
+    );
 
   const streak =
-    hop.streak_after_hop ?? 0;
+    hop.streak_after_hop ??
+    0;
 
   const totalHops =
-    hop.total_hops_after ?? 0;
+    hop.total_hops_after ??
+    0;
 
   const dailyPosition =
-    hop.daily_position ?? 0;
+    hop.daily_position ??
+    0;
 
-  /*
-   * The RPC returns title_after for a newly
-   * recorded hop, but the current toby_hops
-   * table does not store that value.
-   */
-  const title = 'Pond Hopper';
+  const title =
+    'Pond Hopper';
 
   const castText =
     hop.cast_text ??
     buildCast({
       displayName:
-        profile?.display_name ?? null,
+        profile
+          ?.display_name ??
+        null,
+
       username:
-        profile?.username ?? null,
+        profile
+          ?.username ??
+        null,
+
       streak,
       totalHops,
       tobyDisplay,
@@ -432,19 +634,28 @@ async function existingHopToResponse(
     });
 
   return {
-    hopId: hop.id,
+    hopId:
+      hop.id,
+
     tobyAtomic,
     tobyDisplay,
+
     usdcAtomic:
       hop.input_amount_atomic ??
-      HOP_USDC_ATOMIC.toString(),
+      HOP_USDC_ATOMIC
+        .toString(),
+
     streak,
     totalHops,
     dailyPosition,
     title,
     castText,
-    txHash: transactionHash,
-    alreadyRecorded: true,
+
+    txHash:
+      transactionHash,
+
+    alreadyRecorded:
+      true,
   };
 }
 
@@ -452,14 +663,24 @@ async function updateHopCastText(
   hopId: string,
   castText: string,
 ): Promise<void> {
-  const db = supabaseAdmin();
+  const db =
+    supabaseAdmin();
 
-  const { error } = await db
-    .from('toby_hops')
-    .update({
-      cast_text: castText,
-    })
-    .eq('id', hopId);
+  const {
+    error,
+  } =
+    await db
+      .from(
+        'toby_hops',
+      )
+      .update({
+        cast_text:
+          castText,
+      })
+      .eq(
+        'id',
+        hopId,
+      );
 
   if (error) {
     logDatabaseError(
@@ -483,7 +704,8 @@ export async function POST(
       throw new ApiError(
         'Authentication required.',
         {
-          status: 401,
+          status:
+            401,
         },
       );
     }
@@ -492,7 +714,8 @@ export async function POST(
       throw new ApiError(
         'The authenticated session is missing a linked wallet.',
         {
-          status: 401,
+          status:
+            401,
         },
       );
     }
@@ -500,13 +723,19 @@ export async function POST(
     assertTokenConfig();
 
     const body =
-      (await request
-        .json()
-        .catch(() => ({}))) as VerifyHopBody;
+      (
+        await request
+          .json()
+          .catch(
+            () => ({}),
+          )
+      ) as VerifyHopBody;
 
     if (
       !body.txHash ||
-      !isHash(body.txHash)
+      !isHash(
+        body.txHash,
+      )
     ) {
       throw new ApiError(
         'Invalid transaction hash.',
@@ -515,7 +744,9 @@ export async function POST(
 
     if (
       !body.walletAddress ||
-      !isAddress(body.walletAddress)
+      !isAddress(
+        body.walletAddress,
+      )
     ) {
       throw new ApiError(
         'Invalid wallet address.',
@@ -526,10 +757,14 @@ export async function POST(
       body.txHash as Hash;
 
     const submittedWallet =
-      getAddress(body.walletAddress);
+      getAddress(
+        body.walletAddress,
+      );
 
     const authenticatedWallet =
-      getAddress(session.address);
+      getAddress(
+        session.address,
+      );
 
     if (
       !addressesMatch(
@@ -540,7 +775,8 @@ export async function POST(
       throw new ApiError(
         'The submitted wallet does not match the authenticated wallet.',
         {
-          status: 403,
+          status:
+            403,
         },
       );
     }
@@ -550,9 +786,29 @@ export async function POST(
         authenticatedWallet,
       );
 
+    const canonicalFid =
+      getPositiveFid(
+        session.fid,
+      );
+
     /*
-     * Check for an already-recorded transaction
-     * before performing another RPC lookup.
+     * Critical fix:
+     *
+     * Merge a temporary negative-FID wallet record
+     * into the real Farcaster profile before checking
+     * or recording the hop.
+     */
+    if (canonicalFid) {
+      await linkCanonicalIdentity(
+        canonicalFid,
+        normalizedWallet,
+      );
+    }
+
+    /*
+     * This now runs after identity linking, so an
+     * existing hop will already reference the
+     * canonical Farcaster FID.
      */
     const existingHop =
       await getExistingHopByHash(
@@ -562,14 +818,16 @@ export async function POST(
     if (existingHop) {
       if (
         !addressesMatch(
-          existingHop.wallet_address,
+          existingHop
+            .wallet_address,
           authenticatedWallet,
         )
       ) {
         throw new ApiError(
           'This transaction was already recorded for a different wallet.',
           {
-            status: 403,
+            status:
+              403,
           },
         );
       }
@@ -591,14 +849,18 @@ export async function POST(
       throw new ApiError(
         'The transaction is not indexed yet. Try verifying again.',
         {
-          status: 425,
-          retryable: true,
+          status:
+            425,
+
+          retryable:
+            true,
         },
       );
     }
 
     if (
-      receipt.status !== 'success'
+      receipt.status !==
+      'success'
     ) {
       throw new ApiError(
         'The swap transaction failed.',
@@ -608,7 +870,8 @@ export async function POST(
     const transaction =
       await publicClient
         .getTransaction({
-          hash: transactionHash,
+          hash:
+            transactionHash,
         });
 
     if (
@@ -620,7 +883,8 @@ export async function POST(
       throw new ApiError(
         'The authenticated wallet did not send this transaction.',
         {
-          status: 403,
+          status:
+            403,
         },
       );
     }
@@ -628,7 +892,10 @@ export async function POST(
     const allowedTargets =
       getAllowedSwapTargets();
 
-    if (allowedTargets.length > 0) {
+    if (
+      allowedTargets.length >
+      0
+    ) {
       if (!transaction.to) {
         throw new ApiError(
           'The swap transaction has no target address.',
@@ -645,7 +912,8 @@ export async function POST(
         throw new ApiError(
           'The transaction used an unapproved swap target.',
           {
-            status: 403,
+            status:
+              403,
           },
         );
       }
@@ -654,68 +922,88 @@ export async function POST(
     const {
       usdcSpent,
       tobyReceived,
-    } = parseTransfers(
-      receipt,
-      authenticatedWallet,
-    );
+    } =
+      parseTransfers(
+        receipt,
+        authenticatedWallet,
+      );
 
     if (
-      usdcSpent < HOP_USDC_ATOMIC
+      usdcSpent <
+      HOP_USDC_ATOMIC
     ) {
       throw new ApiError(
         `The transaction did not exchange the required USDC amount. Found ${usdcSpent.toString()} atomic USDC.`,
       );
     }
 
-    if (tobyReceived <= 0n) {
+    if (
+      tobyReceived <=
+      0n
+    ) {
       throw new ApiError(
         'No TOBY transfer to the hopper wallet was found.',
       );
     }
 
-    const db = supabaseAdmin();
+    const db =
+      supabaseAdmin();
 
     const {
       data,
       error,
-    } = await db.rpc(
-      'toby_hop_record_verified_wallet',
-      {
-        p_wallet_address:
-          normalizedWallet,
-        p_transaction_hash:
-          transactionHash.toLowerCase(),
-        p_block_number:
-          receipt.blockNumber.toString(),
-        p_input_amount_atomic:
-          usdcSpent.toString(),
-        p_toby_amount_atomic:
-          tobyReceived.toString(),
-      },
-    );
+    } =
+      await db.rpc(
+        'toby_hop_record_verified_wallet',
+        {
+          p_wallet_address:
+            normalizedWallet,
+
+          p_transaction_hash:
+            transactionHash
+              .toLowerCase(),
+
+          p_block_number:
+            receipt.blockNumber
+              .toString(),
+
+          p_input_amount_atomic:
+            usdcSpent
+              .toString(),
+
+          p_toby_amount_atomic:
+            tobyReceived
+              .toString(),
+        },
+      );
 
     if (error) {
       logDatabaseError(
         'toby_hop_record_verified_wallet RPC failed:',
         error,
         {
+          fid:
+            canonicalFid,
+
           wallet:
             normalizedWallet,
+
           transactionHash,
+
           blockNumber:
-            receipt.blockNumber.toString(),
+            receipt.blockNumber
+              .toString(),
+
           usdcSpent:
-            usdcSpent.toString(),
+            usdcSpent
+              .toString(),
+
           tobyReceived:
-            tobyReceived.toString(),
+            tobyReceived
+              .toString(),
         },
       );
 
-      /*
-       * The RPC may have committed successfully
-       * even if the request encountered a later
-       * network or response error. Recover by hash.
-       */
       const recovered =
         await getExistingHopByHash(
           transactionHash,
@@ -724,14 +1012,16 @@ export async function POST(
       if (recovered) {
         if (
           !addressesMatch(
-            recovered.wallet_address,
+            recovered
+              .wallet_address,
             authenticatedWallet,
           )
         ) {
           throw new ApiError(
             'This transaction was recorded for a different wallet.',
             {
-              status: 403,
+              status:
+                403,
             },
           );
         }
@@ -747,7 +1037,8 @@ export async function POST(
       throw new ApiError(
         `Unable to record the verified hop: ${error.message}`,
         {
-          status: 500,
+          status:
+            500,
         },
       );
     }
@@ -757,7 +1048,9 @@ export async function POST(
         Array.isArray(data)
           ? data[0]
           : data
-      ) as VerifiedHopResult | null;
+      ) as
+        | VerifiedHopResult
+        | null;
 
     if (
       !result ||
@@ -768,23 +1061,31 @@ export async function POST(
         {
           data,
           transactionHash,
+
           wallet:
             normalizedWallet,
+
+          canonicalFid,
         },
       );
 
       throw new ApiError(
         'The database did not return a verified hop record.',
         {
-          status: 500,
+          status:
+            500,
         },
       );
     }
 
     const profile =
-      await getProfileByWallet(
-        normalizedWallet,
-      );
+      canonicalFid
+        ? await getProfileByFid(
+            canonicalFid,
+          )
+        : await getProfileByWallet(
+            normalizedWallet,
+          );
 
     const tobyDisplay =
       formatAtomic(
@@ -800,16 +1101,26 @@ export async function POST(
     const castText =
       buildCast({
         displayName:
-          profile?.display_name ?? null,
+          profile
+            ?.display_name ??
+          null,
+
         username:
-          profile?.username ?? null,
+          profile
+            ?.username ??
+          null,
+
         streak:
           result.streak_after,
+
         totalHops:
           result.total_hops_after,
+
         tobyDisplay,
+
         dailyPosition:
           result.daily_position,
+
         title,
       });
 
@@ -821,22 +1132,34 @@ export async function POST(
     return jsonResponse({
       hopId:
         result.hop_id,
+
       tobyAtomic:
-        tobyReceived.toString(),
+        tobyReceived
+          .toString(),
+
       tobyDisplay,
+
       usdcAtomic:
-        usdcSpent.toString(),
+        usdcSpent
+          .toString(),
+
       streak:
         result.streak_after,
+
       totalHops:
         result.total_hops_after,
+
       dailyPosition:
         result.daily_position,
+
       title,
       castText,
+
       txHash:
         transactionHash,
-      alreadyRecorded: false,
+
+      alreadyRecorded:
+        false,
     });
   } catch (cause) {
     console.error(
@@ -844,10 +1167,15 @@ export async function POST(
       cause,
     );
 
-    if (cause instanceof ApiError) {
+    if (
+      cause instanceof
+      ApiError
+    ) {
       return jsonResponse(
         {
-          error: cause.message,
+          error:
+            cause.message,
+
           retryable:
             cause.retryable,
         },
@@ -862,8 +1190,11 @@ export async function POST(
 
     return jsonResponse(
       {
-        error: message,
-        retryable: false,
+        error:
+          message,
+
+        retryable:
+          false,
       },
       500,
     );
