@@ -15,11 +15,21 @@ import {
 
 import {
   consumeSiweNonce,
-  createWalletSession,
-} from '@/lib/auth/wallet-session';
+  createAppSession,
+} from '@/lib/auth/app-session';
 import {
   supabaseAdmin,
 } from '@/lib/supabase/admin';
+
+export const dynamic =
+  'force-dynamic';
+
+const NO_STORE_HEADERS = {
+  'Cache-Control':
+    'no-store, no-cache, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
 
 const publicClient =
   createPublicClient({
@@ -63,6 +73,7 @@ export async function POST(
         },
         {
           status: 400,
+          headers: NO_STORE_HEADERS,
         },
       );
     }
@@ -174,17 +185,24 @@ export async function POST(
       throw error;
     }
 
-    await createWalletSession({
+    await createAppSession({
+      authMethod: 'siwe',
       address,
       chainId: 8453,
     });
 
-    return NextResponse.json({
-      authenticated: true,
-      authMethod: 'siwe',
-      address,
-      user: data,
-    });
+    return NextResponse.json(
+      {
+        authenticated: true,
+        authMethod: 'siwe',
+        fid: null,
+        address,
+        user: data,
+      },
+      {
+        headers: NO_STORE_HEADERS,
+      },
+    );
   } catch (cause) {
     return NextResponse.json(
       {
@@ -198,6 +216,7 @@ export async function POST(
       },
       {
         status: 401,
+        headers: NO_STORE_HEADERS,
       },
     );
   }
