@@ -529,6 +529,7 @@ export function TobyHopApp() {
     ): Promise<SessionResponse | null> => {
       if (
         typeof miniUser.fid !== 'number' ||
+        !Number.isSafeInteger(miniUser.fid) ||
         miniUser.fid <= 0
       ) {
         throw new Error(
@@ -544,54 +545,44 @@ export function TobyHopApp() {
       setFarcasterAuthLoading(true);
 
       try {
-        const tokenResult =
+        /*
+         * sdk.quickAuth.fetch obtains a Quick Auth token and
+         * automatically attaches it as:
+         *
+         * Authorization: Bearer <token>
+         */
+        const response =
           await withTimeout(
-            sdk.quickAuth.getToken(),
+            sdk.quickAuth.fetch(
+              '/api/auth/farcaster',
+              {
+                method: 'POST',
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                  'content-type':
+                    'application/json',
+                  accept:
+                    'application/json',
+                },
+                body: JSON.stringify({
+                  username:
+                    miniUser.username ??
+                    null,
+                  displayName:
+                    miniUser.displayName ??
+                    null,
+                  pfpUrl:
+                    miniUser.pfpUrl ??
+                    null,
+                  walletAddress:
+                    walletAddress ??
+                    null,
+                }),
+              },
+            ),
             API_TIMEOUT_MS,
             'Farcaster authorization timed out.',
-          );
-
-        const token =
-          tokenResult?.token;
-
-        if (
-          typeof token !== 'string' ||
-          !token.trim()
-        ) {
-          throw new Error(
-            'Farcaster did not provide an authorization token.',
-          );
-        }
-
-        const response =
-          await fetchWithTimeout(
-            '/api/auth/farcaster',
-            {
-              method: 'POST',
-              credentials: 'include',
-              cache: 'no-store',
-              headers: {
-                'content-type':
-                  'application/json',
-                authorization:
-                  `Bearer ${token.trim()}`,
-              },
-              body: JSON.stringify({
-                username:
-                  miniUser.username ??
-                  null,
-                displayName:
-                  miniUser.displayName ??
-                  null,
-                pfpUrl:
-                  miniUser.pfpUrl ??
-                  null,
-                walletAddress:
-                  walletAddress ??
-                  null,
-              }),
-            },
-            API_TIMEOUT_MS,
           );
 
         const result =
@@ -608,12 +599,50 @@ export function TobyHopApp() {
           );
         }
 
+        const resultFid =
+          typeof result.fid === 'number' &&
+          Number.isSafeInteger(result.fid) &&
+          result.fid > 0
+            ? result.fid
+            : null;
+
+        if (
+          resultFid &&
+          resultFid !== miniUser.fid
+        ) {
+          throw new Error(
+            'The authenticated Farcaster account does not match the active profile.',
+          );
+        }
+
+        if (
+          walletAddress &&
+          (
+            !result.address ||
+            !isAddress(result.address) ||
+            !addressesMatch(
+              result.address,
+              walletAddress,
+            )
+          )
+        ) {
+          throw new Error(
+            'Farcaster authentication did not link the connected wallet.',
+          );
+        }
+
         applySessionResult(
           result,
           miniUser,
         );
 
         return result;
+      } catch (cause) {
+        setAuthenticated(false);
+        setAuthMethod(null);
+        setAuthenticatedAddress(null);
+
+        throw cause;
       } finally {
         farcasterAuthRef.current = false;
         setFarcasterAuthLoading(false);
