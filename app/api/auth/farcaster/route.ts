@@ -50,6 +50,17 @@ type FarcasterUserRow = {
   [key: string]: unknown;
 };
 
+const NO_STORE_HEADERS = {
+  'Cache-Control':
+    'no-store, no-cache, must-revalidate',
+
+  Pragma:
+    'no-cache',
+
+  Expires:
+    '0',
+};
+
 function cleanText(
   value: unknown,
   maxLength: number,
@@ -85,13 +96,19 @@ function cleanWalletAddress(
 }
 
 function firstRpcRow<T>(
-  value: T | T[] | null,
+  value:
+    | T
+    | T[]
+    | null
+    | undefined,
 ): T | null {
-  if (Array.isArray(value)) {
+  if (
+    Array.isArray(value)
+  ) {
     return value[0] ?? null;
   }
 
-  return value;
+  return value ?? null;
 }
 
 function normalizeAtomic(
@@ -121,6 +138,43 @@ function normalizeAtomic(
   }
 }
 
+function normalizeFid(
+  value: unknown,
+): number {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : Number.NaN;
+
+  if (
+    !Number.isSafeInteger(
+      parsed,
+    ) ||
+    parsed <= 0
+  ) {
+    throw new Error(
+      'The persisted Farcaster user has an invalid FID.',
+    );
+  }
+
+  return parsed;
+}
+
+function normalizePersistedWallet(
+  value: unknown,
+): Address | null {
+  if (
+    typeof value !== 'string' ||
+    !isAddress(value)
+  ) {
+    return null;
+  }
+
+  return getAddress(value);
+}
+
 function normalizeUser(
   value: FarcasterUserRow,
 ): FarcasterUserRow {
@@ -128,8 +182,13 @@ function normalizeUser(
     ...value,
 
     fid:
-      Number(
+      normalizeFid(
         value.fid,
+      ),
+
+    wallet_address:
+      normalizePersistedWallet(
+        value.wallet_address,
       ),
 
     total_toby_atomic:
@@ -152,10 +211,8 @@ export async function POST(
 ) {
   try {
     /*
-      This validates the currently active Farcaster profile.
-
-      It must be called during app startup, not only when the
-      user attempts to hop.
+      Validates the currently active Farcaster identity from
+      the Quick Auth token attached to this request.
     */
     const auth =
       await requireFarcasterUser(
@@ -189,7 +246,7 @@ export async function POST(
         1_000,
       );
 
-    const walletAddress =
+    const requestedWallet =
       cleanWalletAddress(
         body.walletAddress,
       );
@@ -197,9 +254,14 @@ export async function POST(
     const db =
       supabaseAdmin();
 
+    /*
+      Ensure the current Farcaster user exists and update
+      the profile fields supplied by the Mini App context.
+    */
     const {
       data:
         farcasterUserResult,
+
       error:
         farcasterUserError,
     } =
@@ -220,7 +282,9 @@ export async function POST(
         },
       );
 
-    if (farcasterUserError) {
+    if (
+      farcasterUserError
+    ) {
       console.error(
         'Farcaster user RPC failed:',
         farcasterUserError,
@@ -231,18 +295,25 @@ export async function POST(
       );
     }
 
-    const createdUser =
-      firstRpcRow(
+    if (
+      !firstRpcRow(
         farcasterUserResult,
-      );
-
-    if (!createdUser) {
+      )
+    ) {
       throw new Error(
         'The Farcaster user could not be created.',
       );
     }
 
-    if (walletAddress) {
+    /*
+      Only relink the user when the client actually supplied
+      a valid wallet address.
+
+      The SQL function can normalize storage casing if needed.
+    */
+    if (
+      requestedWallet
+    ) {
       const {
         error:
           linkError,
@@ -254,12 +325,13 @@ export async function POST(
               auth.fid,
 
             p_wallet_address:
-              walletAddress
-                .toLowerCase(),
+              requestedWallet,
           },
         );
 
-      if (linkError) {
+      if (
+        linkError
+      ) {
         console.error(
           'Farcaster-wallet linking failed:',
           linkError,
@@ -272,17 +344,16 @@ export async function POST(
     }
 
     /*
-      Use the RPC that casts atomic numeric values to text.
+      Reload through the text-safe RPC.
 
-      Do not use:
-      .from('toby_hop_users').select('*')
-
-      Large PostgreSQL numeric values can otherwise arrive in
-      JavaScript scientific notation and lose precision.
+      Atomic balances must remain strings so large PostgreSQL
+      numeric values never pass through JavaScript floating-point
+      numbers.
     */
     const {
       data:
         persistedUserResult,
+
       error:
         persistedUserError,
     } =
@@ -294,7 +365,9 @@ export async function POST(
         },
       );
 
-    if (persistedUserError) {
+    if (
+      persistedUserError
+    ) {
       console.error(
         'Unable to reload Farcaster user:',
         persistedUserError,
@@ -313,7 +386,9 @@ export async function POST(
           | null,
       );
 
-    if (!persistedUser) {
+    if (
+      !persistedUser
+    ) {
       throw new Error(
         'The Farcaster user was not found after authentication.',
       );
@@ -324,13 +399,38 @@ export async function POST(
         persistedUser,
       );
 
-    /*
-      Recreate the app session using the currently validated
-      Farcaster profile.
+    const normalizedFid =
+      normalizeFid(
+        normalizedUser.fid,
+      );
 
-      This replaces a stale cookie left behind by another
-      Farcaster profile.
+    if (
+      normalizedFid !==
+      auth.fid
+    ) {
+      throw new Error(
+        'The persisted user does not match the authenticated Farcaster account.',
+      );
+    }
+
+    /*
+      Preserve the wallet already linked in the database when
+      this automatic startup request does not include a wallet.
+
+      Without this fallback, opening the app can recreate the
+      session with address undefined and temporarily lose the
+      wallet association required by hop verification.
     */
+    const persistedWallet =
+      normalizePersistedWallet(
+        normalizedUser.wallet_address,
+      );
+
+    const sessionAddress =
+      requestedWallet ??
+      persistedWallet ??
+      undefined;
+
     await createAppSession({
       authMethod:
         'farcaster',
@@ -339,8 +439,7 @@ export async function POST(
         auth.fid,
 
       address:
-        walletAddress ??
-        undefined,
+        sessionAddress,
 
       chainId:
         8453,
@@ -358,22 +457,15 @@ export async function POST(
           auth.fid,
 
         address:
-          walletAddress,
+          sessionAddress ??
+          null,
 
         user:
           normalizedUser,
       },
       {
-        headers: {
-          'Cache-Control':
-            'no-store, no-cache, must-revalidate',
-
-          Pragma:
-            'no-cache',
-
-          Expires:
-            '0',
-        },
+        headers:
+          NO_STORE_HEADERS,
       },
     );
   } catch (cause) {
@@ -414,16 +506,8 @@ export async function POST(
         status:
           401,
 
-        headers: {
-          'Cache-Control':
-            'no-store, no-cache, must-revalidate',
-
-          Pragma:
-            'no-cache',
-
-          Expires:
-            '0',
-        },
+        headers:
+          NO_STORE_HEADERS,
       },
     );
   }
