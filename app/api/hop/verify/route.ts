@@ -6,7 +6,6 @@ import {
   createPublicClient,
   decodeEventLog,
   erc20Abi,
-  getAddress,
   http,
   isAddress,
   isHash,
@@ -133,6 +132,12 @@ function noStoreHeaders() {
   return {
     'Cache-Control':
       'no-store, no-cache, must-revalidate',
+
+    Pragma:
+      'no-cache',
+
+    Expires:
+      '0',
   };
 }
 
@@ -257,6 +262,7 @@ async function linkCanonicalIdentity(
       error,
       {
         fid,
+
         walletAddress:
           normalizeAddress(
             walletAddress,
@@ -297,8 +303,10 @@ async function getReceiptSoon(
           'Transaction receipt was not available:',
           {
             hash,
+
             attempts:
               RECEIPT_LOOKUP_ATTEMPTS,
+
             cause,
           },
         );
@@ -465,6 +473,17 @@ async function getProfileByWallet(
   );
 }
 
+/*
+  Smart wallets may submit through an ERC-4337 bundler.
+
+  In that case:
+  - transaction.from can be the bundler
+  - transaction.to can be an EntryPoint contract
+  - the actual hopper wallet appears in ERC-20 Transfer logs
+
+  The transfer logs are therefore the authoritative evidence for
+  which wallet spent USDC and received TOBY.
+*/
 function parseTransfers(
   receipt: TransactionReceipt,
   walletAddress: Address,
@@ -529,10 +548,10 @@ function parseTransfers(
       if (
         tokenAddress ===
           normalizedUsdc &&
-        normalizeAddress(
+        addressesMatch(
           args.from,
-        ) ===
-          normalizedWallet
+          normalizedWallet,
+        )
       ) {
         usdcSpent +=
           args.value;
@@ -541,16 +560,16 @@ function parseTransfers(
       if (
         tokenAddress ===
           normalizedToby &&
-        normalizeAddress(
+        addressesMatch(
           args.to,
-        ) ===
-          normalizedWallet
+          normalizedWallet,
+        )
       ) {
         tobyReceived +=
           args.value;
       }
     } catch {
-      // Ignore non-ERC-20 logs.
+      // Ignore unrelated and non-ERC-20 logs.
     }
   }
 
@@ -718,6 +737,12 @@ export async function POST(
     const transactionHash =
       body.txHash as Hash;
 
+    /*
+      This still protects against one authenticated user submitting
+      another unrelated wallet address.
+
+      It validates the requested wallet against the canonical session.
+    */
     const submittedWallet =
       requireRequestedHopWallet(
         identity,
@@ -799,14 +824,33 @@ export async function POST(
             transactionHash,
         });
 
-    if (
-      !addressesMatch(
-        transaction.from,
+    /*
+      Validate the token movements before checking the outer
+      transaction sender or target.
+
+      For an ordinary wallet, transaction.from usually equals the
+      submitted wallet.
+
+      For a smart wallet, transaction.from may be a bundler and
+      transaction.to may be an EntryPoint contract. The actual smart
+      account still appears as the USDC sender and TOBY recipient in
+      the receipt logs.
+    */
+    const {
+      usdcSpent,
+      tobyReceived,
+    } =
+      parseTransfers(
+        receipt,
         submittedWallet,
-      )
+      );
+
+    if (
+      usdcSpent <
+      HOP_USDC_ATOMIC
     ) {
       throw new ApiError(
-        'The submitted wallet did not send this transaction.',
+        `The submitted wallet did not spend the required USDC amount. Found ${usdcSpent.toString()} atomic USDC.`,
         {
           status:
             403,
@@ -814,11 +858,38 @@ export async function POST(
       );
     }
 
+    if (
+      tobyReceived <= 0n
+    ) {
+      throw new ApiError(
+        'No TOBY transfer to the submitted wallet was found.',
+        {
+          status:
+            403,
+        },
+      );
+    }
+
+    const directWalletTransaction =
+      addressesMatch(
+        transaction.from,
+        submittedWallet,
+      );
+
     const allowedTargets =
       getAllowedSwapTargets();
 
+    /*
+      Keep strict router validation for direct EOA transactions.
+
+      Account-abstraction transactions may point to an EntryPoint or
+      smart-account execution contract instead of the underlying swap
+      router, so the validated ERC-20 flow becomes the authoritative
+      evidence in that case.
+    */
     if (
-      allowedTargets.length > 0
+      allowedTargets.length > 0 &&
+      directWalletTransaction
     ) {
       if (!transaction.to) {
         throw new ApiError(
@@ -843,29 +914,37 @@ export async function POST(
       }
     }
 
-    const {
-      usdcSpent,
-      tobyReceived,
-    } =
-      parseTransfers(
-        receipt,
-        submittedWallet,
-      );
-
     if (
-      usdcSpent <
-      HOP_USDC_ATOMIC
+      !directWalletTransaction
     ) {
-      throw new ApiError(
-        `The transaction did not exchange the required USDC amount. Found ${usdcSpent.toString()} atomic USDC.`,
-      );
-    }
+      console.info(
+        'Verified account-abstraction Toby Hop:',
+        {
+          transactionHash,
 
-    if (
-      tobyReceived <= 0n
-    ) {
-      throw new ApiError(
-        'No TOBY transfer to the hopper wallet was found.',
+          submittedWallet:
+            normalizedWallet,
+
+          outerTransactionFrom:
+            normalizeAddress(
+              transaction.from,
+            ),
+
+          outerTransactionTo:
+            transaction.to
+              ? normalizeAddress(
+                  transaction.to,
+                )
+              : null,
+
+          usdcSpent:
+            usdcSpent
+              .toString(),
+
+          tobyReceived:
+            tobyReceived
+              .toString(),
+        },
       );
     }
 
@@ -982,9 +1061,12 @@ export async function POST(
         'Unexpected verified-hop RPC response:',
         {
           data,
+
           transactionHash,
+
           wallet:
             normalizedWallet,
+
           canonicalFid:
             identity.fid,
         },
@@ -1081,6 +1163,9 @@ export async function POST(
 
       alreadyRecorded:
         false,
+
+      accountAbstraction:
+        !directWalletTransaction,
     });
   } catch (cause) {
     console.error(
