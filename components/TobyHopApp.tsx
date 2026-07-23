@@ -544,31 +544,27 @@ export function TobyHopApp() {
       setFarcasterAuthLoading(true);
 
       try {
-        const requestWithToken = async (
-          force: boolean,
-        ): Promise<Response> => {
-          const tokenResult =
-            await withTimeout(
-              sdk.quickAuth.getToken({
-                force,
-              }),
-              API_TIMEOUT_MS,
-              'Farcaster authorization timed out.',
-            );
+        const tokenResult =
+          await withTimeout(
+            sdk.quickAuth.getToken(),
+            API_TIMEOUT_MS,
+            'Farcaster authorization timed out.',
+          );
 
-          const token =
-            tokenResult?.token;
+        const token =
+          tokenResult?.token;
 
-          if (
-            typeof token !== 'string' ||
-            !token.trim()
-          ) {
-            throw new Error(
-              'Farcaster did not provide an authorization token.',
-            );
-          }
+        if (
+          typeof token !== 'string' ||
+          !token.trim()
+        ) {
+          throw new Error(
+            'Farcaster did not provide an authorization token.',
+          );
+        }
 
-          return fetchWithTimeout(
+        const response =
+          await fetchWithTimeout(
             '/api/auth/farcaster',
             {
               method: 'POST',
@@ -590,24 +586,13 @@ export function TobyHopApp() {
                 pfpUrl:
                   miniUser.pfpUrl ??
                   null,
-                walletAddress,
+                walletAddress:
+                  walletAddress ??
+                  null,
               }),
             },
             API_TIMEOUT_MS,
           );
-        };
-
-        let response =
-          await requestWithToken(
-            false,
-          );
-
-        if (response.status === 401) {
-          response =
-            await requestWithToken(
-              true,
-            );
-        }
 
         const result =
           await readJsonResponse<SessionResponse>(
