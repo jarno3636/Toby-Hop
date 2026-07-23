@@ -24,26 +24,14 @@ export type AuthMethod =
 
 export type AppSession = {
   authMethod: AuthMethod;
-
-  /*
-    Present after SIWE, or when a Farcaster wallet has
-    been linked to the verified Farcaster account.
-  */
   address?: Address;
-
-  /*
-    Present for Farcaster Quick Auth sessions.
-  */
   fid?: number;
-
   chainId: 8453;
 };
 
-function getSessionSecret():
-Uint8Array {
+function getSessionSecret(): Uint8Array {
   const value =
-    process.env
-      .TOBY_HOP_SESSION_SECRET;
+    process.env.TOBY_HOP_SESSION_SECRET;
 
   if (
     !value ||
@@ -54,9 +42,20 @@ Uint8Array {
     );
   }
 
-  return new TextEncoder().encode(
-    value,
-  );
+  return new TextEncoder().encode(value);
+}
+
+function getCookieSecurity() {
+  const production =
+    process.env.NODE_ENV === 'production';
+
+  return {
+    secure: production,
+    sameSite:
+      production
+        ? ('none' as const)
+        : ('lax' as const),
+  };
 }
 
 function normalizeSession(
@@ -65,22 +64,17 @@ function normalizeSession(
   const address =
     session.address &&
     isAddress(session.address)
-      ? getAddress(
-          session.address,
-        )
+      ? getAddress(session.address)
       : undefined;
 
   const fid =
-    Number.isSafeInteger(
-      session.fid,
-    ) &&
+    Number.isSafeInteger(session.fid) &&
     Number(session.fid) > 0
       ? Number(session.fid)
       : undefined;
 
   if (
-    session.authMethod ===
-      'siwe' &&
+    session.authMethod === 'siwe' &&
     !address
   ) {
     throw new Error(
@@ -89,8 +83,7 @@ function normalizeSession(
   }
 
   if (
-    session.authMethod ===
-      'farcaster' &&
+    session.authMethod === 'farcaster' &&
     !fid
   ) {
     throw new Error(
@@ -99,8 +92,7 @@ function normalizeSession(
   }
 
   return {
-    authMethod:
-      session.authMethod,
+    authMethod: session.authMethod,
     address,
     fid,
     chainId: 8453,
@@ -117,13 +109,10 @@ export async function createAppSession(
     await new SignJWT({
       authMethod:
         session.authMethod,
-
       address:
         session.address,
-
       fid:
         session.fid,
-
       chainId:
         session.chainId,
     })
@@ -135,31 +124,26 @@ export async function createAppSession(
         `${SESSION_DURATION_SECONDS}s`,
       )
       .setIssuer('toby-hop')
-      .setAudience(
-        'toby-hop-app',
-      )
-      .sign(
-        getSessionSecret(),
-      );
+      .setAudience('toby-hop-app')
+      .sign(getSessionSecret());
 
   const cookieStore =
     await cookies();
+
+  const security =
+    getCookieSecurity();
 
   cookieStore.set(
     SESSION_COOKIE,
     token,
     {
       httpOnly: true,
-
-      secure:
-        process.env.NODE_ENV ===
-        'production',
-
-      sameSite: 'lax',
+      secure: security.secure,
+      sameSite: security.sameSite,
       path: '/',
-
       maxAge:
         SESSION_DURATION_SECONDS,
+      priority: 'high',
     },
   );
 }
@@ -185,7 +169,6 @@ Promise<AppSession | null> {
         getSessionSecret(),
         {
           issuer: 'toby-hop',
-
           audience:
             'toby-hop-app',
         },
@@ -196,8 +179,7 @@ Promise<AppSession | null> {
 
     if (
       authMethod !== 'siwe' &&
-      authMethod !==
-        'farcaster'
+      authMethod !== 'farcaster'
     ) {
       return null;
     }
@@ -205,12 +187,8 @@ Promise<AppSession | null> {
     const address =
       typeof payload.address ===
         'string' &&
-      isAddress(
-        payload.address,
-      )
-        ? getAddress(
-            payload.address,
-          )
+      isAddress(payload.address)
+        ? getAddress(payload.address)
         : undefined;
 
     const fid =
@@ -223,10 +201,7 @@ Promise<AppSession | null> {
         ? payload.fid
         : undefined;
 
-    const chainId =
-      payload.chainId;
-
-    if (chainId !== 8453) {
+    if (payload.chainId !== 8453) {
       return null;
     }
 
@@ -238,8 +213,7 @@ Promise<AppSession | null> {
     }
 
     if (
-      authMethod ===
-        'farcaster' &&
+      authMethod === 'farcaster' &&
       !fid
     ) {
       return null;
@@ -249,9 +223,14 @@ Promise<AppSession | null> {
       authMethod,
       address,
       fid,
-      chainId,
+      chainId: 8453,
     };
-  } catch {
+  } catch (cause) {
+    console.warn(
+      'Unable to restore Toby Hop session:',
+      cause,
+    );
+
     return null;
   }
 }
@@ -270,7 +249,6 @@ export async function updateAppSessionAddress(
 
   await createAppSession({
     ...session,
-
     address:
       getAddress(address),
   });
@@ -281,19 +259,19 @@ Promise<void> {
   const cookieStore =
     await cookies();
 
+  const security =
+    getCookieSecurity();
+
   cookieStore.set(
     SESSION_COOKIE,
     '',
     {
       httpOnly: true,
-
-      secure:
-        process.env.NODE_ENV ===
-        'production',
-
-      sameSite: 'lax',
+      secure: security.secure,
+      sameSite: security.sameSite,
       path: '/',
       maxAge: 0,
+      priority: 'high',
     },
   );
 }
@@ -304,20 +282,19 @@ export async function storeSiweNonce(
   const cookieStore =
     await cookies();
 
+  const security =
+    getCookieSecurity();
+
   cookieStore.set(
     NONCE_COOKIE,
     nonce,
     {
       httpOnly: true,
-
-      secure:
-        process.env.NODE_ENV ===
-        'production',
-
-      sameSite: 'lax',
+      secure: security.secure,
+      sameSite: security.sameSite,
       path: '/',
-
       maxAge: 10 * 60,
+      priority: 'high',
     },
   );
 }
@@ -332,19 +309,19 @@ Promise<string | null> {
       NONCE_COOKIE,
     )?.value ?? null;
 
+  const security =
+    getCookieSecurity();
+
   cookieStore.set(
     NONCE_COOKIE,
     '',
     {
       httpOnly: true,
-
-      secure:
-        process.env.NODE_ENV ===
-        'production',
-
-      sameSite: 'lax',
+      secure: security.secure,
+      sameSite: security.sameSite,
       path: '/',
       maxAge: 0,
+      priority: 'high',
     },
   );
 
