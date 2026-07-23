@@ -4,6 +4,7 @@ import {
 import {
   getAddress,
   isAddress,
+  type Address,
 } from 'viem';
 
 import {
@@ -23,7 +24,7 @@ type FarcasterAuthBody = {
   walletAddress?: unknown;
 };
 
-function clean(
+function cleanText(
   value: unknown,
   maxLength: number,
 ): string | null {
@@ -44,9 +45,9 @@ function clean(
     : null;
 }
 
-function parseWalletAddress(
+function cleanWalletAddress(
   value: unknown,
-): `0x${string}` | null {
+): Address | null {
   if (
     typeof value !== 'string' ||
     !isAddress(value)
@@ -57,10 +58,24 @@ function parseWalletAddress(
   return getAddress(value);
 }
 
+function firstRpcRow<T>(
+  value: T | T[] | null,
+): T | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value;
+}
+
 export async function POST(
   request: Request,
 ) {
   try {
+    /*
+      The FID is accepted only from the verified
+      Farcaster Quick Auth token.
+    */
     const auth =
       await requireFarcasterUser(
         request,
@@ -73,35 +88,35 @@ export async function POST(
           () => ({}),
         )) as FarcasterAuthBody;
 
-    const walletAddress =
-      parseWalletAddress(
-        body.walletAddress,
-      );
-
     const username =
-      clean(
+      cleanText(
         body.username,
         64,
       );
 
     const displayName =
-      clean(
+      cleanText(
         body.displayName,
         100,
       );
 
     const pfpUrl =
-      clean(
+      cleanText(
         body.pfpUrl,
         1_000,
+      );
+
+    const walletAddress =
+      cleanWalletAddress(
+        body.walletAddress,
       );
 
     const db =
       supabaseAdmin();
 
     /*
-      First create or retrieve the Farcaster identity.
-      The FID comes only from the verified Quick Auth JWT.
+      Resolve or create the Farcaster user first.
+      Context profile fields are display data only.
     */
     const {
       data:
@@ -126,19 +141,26 @@ export async function POST(
         },
       );
 
-    if (
-      farcasterUserError
-    ) {
-      throw farcasterUserError;
+    if (farcasterUserError) {
+      console.error(
+        'Farcaster user RPC failed:',
+        farcasterUserError,
+      );
+
+      throw new Error(
+        farcasterUserError.message,
+      );
     }
 
     let user =
-      farcasterUserResult;
+      firstRpcRow(
+        farcasterUserResult,
+      );
 
     /*
-      Link the currently exposed Farcaster wallet when one
-      is available. The transaction verification route must
-      still verify the actual sender of every hop.
+      The first automatic Quick Auth request may not have
+      a wallet yet. TobyHopApp calls this route again with
+      the transaction wallet when the user taps Toby.
     */
     if (walletAddress) {
       const {
@@ -157,18 +179,30 @@ export async function POST(
         );
 
       if (walletUserError) {
-        throw walletUserError;
+        console.error(
+          'Wallet user RPC failed:',
+          walletUserError,
+        );
+
+        throw new Error(
+          walletUserError.message,
+        );
       }
 
       const walletUser =
-        Array.isArray(
+        firstRpcRow(
           walletUserResult,
-        )
-          ? walletUserResult[0]
-          : walletUserResult;
+        );
 
       const walletUserId =
-        walletUser?.id;
+        walletUser &&
+        typeof walletUser ===
+          'object' &&
+        'id' in walletUser &&
+        typeof walletUser.id ===
+          'string'
+          ? walletUser.id
+          : null;
 
       if (walletUserId) {
         const {
@@ -202,19 +236,19 @@ export async function POST(
               walletUserId,
             )
             .select('*')
-            .single();
+            .maybeSingle();
 
         if (linkError) {
-          /*
-            This commonly means the FID is already attached
-            to a legacy row. Do not destroy authentication;
-            return the verified Farcaster record instead.
-          */
           console.error(
-            'Unable to link Farcaster wallet profile:',
+            'Farcaster-wallet linking failed:',
             linkError,
           );
-        } else {
+
+          /*
+            Do not reject valid Quick Auth solely because
+            a legacy database record needs reconciliation.
+          */
+        } else if (linkedUser) {
           user =
             linkedUser;
         }
@@ -232,23 +266,38 @@ export async function POST(
         walletAddress ??
         undefined,
 
-      chainId: 8453,
+      chainId:
+        8453,
     });
 
     return NextResponse.json({
-      authenticated: true,
+      authenticated:
+        true,
+
       authMethod:
         'farcaster',
+
       fid:
         auth.fid,
+
       address:
         walletAddress,
-      user,
+
+      user:
+        user ?? null,
     });
   } catch (cause) {
+    const message =
+      cause instanceof Error
+        ? cause.message
+        : 'Farcaster authentication failed.';
+
     console.error(
-      'Farcaster authentication failed:',
-      cause,
+      'POST /api/auth/farcaster failed:',
+      {
+        message,
+        cause,
+      },
     );
 
     return NextResponse.json(
@@ -256,15 +305,33 @@ export async function POST(
         authenticated:
           false,
 
-        user: null,
+        authMethod:
+          null,
 
+        fid:
+          null,
+
+        address:
+          null,
+
+        user:
+          null,
+
+        /*
+          Leave this visible while debugging.
+          It will tell us whether the remaining problem
+          is domain verification or the database.
+        */
         error:
-          cause instanceof Error
-            ? cause.message
-            : 'Farcaster authentication failed.',
+          message,
       },
       {
         status: 401,
+
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
       },
     );
   }
