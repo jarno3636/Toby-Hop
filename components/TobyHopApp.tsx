@@ -2396,11 +2396,7 @@ export function TobyHopApp() {
     }
   }
 
-  async function signInWithWallet(
-    providedWallet:
-      Address | null =
-      null,
-  ):
+  async function signInWithWallet():
   Promise<Address | null> {
     if (
       browserAuthRef.current
@@ -2417,7 +2413,6 @@ export function TobyHopApp() {
 
     try {
       const wallet =
-        providedWallet ??
         await getConnectedWallet();
 
       setHopState(
@@ -3189,9 +3184,7 @@ export function TobyHopApp() {
         !walletMatchesSession
       ) {
         const signedIn =
-          await signInWithWallet(
-            wallet,
-          );
+          await signInWithWallet();
 
         if (!signedIn) {
           return;
