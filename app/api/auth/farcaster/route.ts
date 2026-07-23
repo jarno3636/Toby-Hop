@@ -149,10 +149,16 @@ export async function POST(
       );
     }
 
-    let user =
+    const createdUser =
       firstRpcRow(
         farcasterUserResult,
       );
+
+    if (!createdUser) {
+      throw new Error(
+        'The Farcaster user could not be created.',
+      );
+    }
 
     if (walletAddress) {
       const {
@@ -181,32 +187,47 @@ export async function POST(
           linkError.message,
         );
       }
+    }
 
-      const {
-        data:
-          linkedUser,
-        error:
-          linkedUserError,
-      } =
-        await db
-          .from('toby_hop_users')
-          .select('*')
-          .eq(
-            'fid',
-            auth.fid,
-          )
-          .maybeSingle();
+    /*
+      Always reload the complete persisted row.
 
-      if (linkedUserError) {
-        throw new Error(
-          linkedUserError.message,
-        );
-      }
+      Do not trust the RPC return value as the final user object,
+      because the RPC may have an outdated return shape and omit
+      newer fields such as total_toby_atomic.
+    */
+    const {
+      data:
+        persistedUser,
+      error:
+        persistedUserError,
+    } =
+      await db
+        .from(
+          'toby_hop_users',
+        )
+        .select('*')
+        .eq(
+          'fid',
+          auth.fid,
+        )
+        .maybeSingle();
 
-      if (linkedUser) {
-        user =
-          linkedUser;
-      }
+    if (persistedUserError) {
+      console.error(
+        'Unable to reload Farcaster user:',
+        persistedUserError,
+      );
+
+      throw new Error(
+        persistedUserError.message,
+      );
+    }
+
+    if (!persistedUser) {
+      throw new Error(
+        'The Farcaster user was not found after authentication.',
+      );
     }
 
     await createAppSession({
@@ -239,12 +260,12 @@ export async function POST(
           walletAddress,
 
         user:
-          user ?? null,
+          persistedUser,
       },
       {
         headers: {
           'Cache-Control':
-            'no-store',
+            'no-store, no-cache, must-revalidate',
         },
       },
     );
@@ -288,7 +309,7 @@ export async function POST(
 
         headers: {
           'Cache-Control':
-            'no-store',
+            'no-store, no-cache, must-revalidate',
         },
       },
     );
