@@ -231,9 +231,9 @@ export async function POST(
           hash:
             transactionHash,
           confirmations:
-            2,
+            1,
           timeout:
-            120_000,
+            240_000,
         });
 
     if (
