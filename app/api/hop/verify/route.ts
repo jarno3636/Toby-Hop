@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server';
+import {
+  NextResponse,
+} from 'next/server';
 
 import {
   createPublicClient,
@@ -13,11 +15,14 @@ import {
   type TransactionReceipt,
 } from 'viem';
 
-import { base } from 'viem/chains';
+import {
+  base,
+} from 'viem/chains';
 
 import {
-  readAppSession,
-} from '@/lib/auth/app-session';
+  requireCanonicalIdentity,
+  requireRequestedHopWallet,
+} from '@/lib/auth/canonical-identity';
 
 import {
   assertTokenConfig,
@@ -38,16 +43,19 @@ import {
   formatAtomic,
 } from '@/lib/format';
 
-export const dynamic = 'force-dynamic';
+export const dynamic =
+  'force-dynamic';
 
 const publicClient =
   createPublicClient({
-    chain: base,
+    chain:
+      base,
 
-    transport: http(
-      process.env.BASE_RPC_URL ||
-        'https://mainnet.base.org',
-    ),
+    transport:
+      http(
+        process.env.BASE_RPC_URL ||
+          'https://mainnet.base.org',
+      ),
   });
 
 const RECEIPT_LOOKUP_ATTEMPTS =
@@ -173,22 +181,8 @@ function addressesMatch(
   );
 }
 
-function getPositiveFid(
-  value: unknown,
-): number | null {
-  if (
-    typeof value !== 'number' ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    return null;
-  }
-
-  return value;
-}
-
 function getAllowedSwapTargets():
-  string[] {
+string[] {
   return (
     process.env
       .ALLOWED_SWAP_TARGETS ??
@@ -203,14 +197,12 @@ function getAllowedSwapTargets():
 
 function logDatabaseError(
   label: string,
-
   error: {
     code?: string;
     message?: string;
     details?: string;
     hint?: string;
   },
-
   context?: Record<
     string,
     unknown
@@ -305,10 +297,8 @@ async function getReceiptSoon(
           'Transaction receipt was not available:',
           {
             hash,
-
             attempts:
               RECEIPT_LOOKUP_ATTEMPTS,
-
             cause,
           },
         );
@@ -336,9 +326,7 @@ async function getExistingHopByHash(
     error,
   } =
     await db
-      .from(
-        'toby_hops',
-      )
+      .from('toby_hops')
       .select(`
         id,
         fid,
@@ -394,9 +382,7 @@ async function getProfileByFid(
     error,
   } =
     await db
-      .from(
-        'toby_hop_users',
-      )
+      .from('toby_hop_users')
       .select(`
         fid,
         display_name,
@@ -438,9 +424,7 @@ async function getProfileByWallet(
     error,
   } =
     await db
-      .from(
-        'toby_hop_users',
-      )
+      .from('toby_hop_users')
       .select(`
         fid,
         display_name,
@@ -670,9 +654,7 @@ async function updateHopCastText(
     error,
   } =
     await db
-      .from(
-        'toby_hops',
-      )
+      .from('toby_hops')
       .update({
         cast_text:
           castText,
@@ -697,28 +679,8 @@ export async function POST(
   request: Request,
 ) {
   try {
-    const session =
-      await readAppSession();
-
-    if (!session) {
-      throw new ApiError(
-        'Authentication required.',
-        {
-          status:
-            401,
-        },
-      );
-    }
-
-    if (!session.address) {
-      throw new ApiError(
-        'The authenticated session is missing a linked wallet.',
-        {
-          status:
-            401,
-        },
-      );
-    }
+    const identity =
+      await requireCanonicalIdentity();
 
     assertTokenConfig();
 
@@ -757,59 +719,23 @@ export async function POST(
       body.txHash as Hash;
 
     const submittedWallet =
-      getAddress(
+      requireRequestedHopWallet(
+        identity,
         body.walletAddress,
       );
 
-    const authenticatedWallet =
-      getAddress(
-        session.address,
-      );
-
-    if (
-      !addressesMatch(
-        submittedWallet,
-        authenticatedWallet,
-      )
-    ) {
-      throw new ApiError(
-        'The submitted wallet does not match the authenticated wallet.',
-        {
-          status:
-            403,
-        },
-      );
-    }
-
     const normalizedWallet =
       normalizeAddress(
-        authenticatedWallet,
+        submittedWallet,
       );
 
-    const canonicalFid =
-      getPositiveFid(
-        session.fid,
-      );
-
-    /*
-     * Critical fix:
-     *
-     * Merge a temporary negative-FID wallet record
-     * into the real Farcaster profile before checking
-     * or recording the hop.
-     */
-    if (canonicalFid) {
+    if (identity.fid) {
       await linkCanonicalIdentity(
-        canonicalFid,
+        identity.fid,
         normalizedWallet,
       );
     }
 
-    /*
-     * This now runs after identity linking, so an
-     * existing hop will already reference the
-     * canonical Farcaster FID.
-     */
     const existingHop =
       await getExistingHopByHash(
         transactionHash,
@@ -818,9 +744,8 @@ export async function POST(
     if (existingHop) {
       if (
         !addressesMatch(
-          existingHop
-            .wallet_address,
-          authenticatedWallet,
+          existingHop.wallet_address,
+          submittedWallet,
         )
       ) {
         throw new ApiError(
@@ -877,11 +802,11 @@ export async function POST(
     if (
       !addressesMatch(
         transaction.from,
-        authenticatedWallet,
+        submittedWallet,
       )
     ) {
       throw new ApiError(
-        'The authenticated wallet did not send this transaction.',
+        'The submitted wallet did not send this transaction.',
         {
           status:
             403,
@@ -893,8 +818,7 @@ export async function POST(
       getAllowedSwapTargets();
 
     if (
-      allowedTargets.length >
-      0
+      allowedTargets.length > 0
     ) {
       if (!transaction.to) {
         throw new ApiError(
@@ -925,7 +849,7 @@ export async function POST(
     } =
       parseTransfers(
         receipt,
-        authenticatedWallet,
+        submittedWallet,
       );
 
     if (
@@ -938,8 +862,7 @@ export async function POST(
     }
 
     if (
-      tobyReceived <=
-      0n
+      tobyReceived <= 0n
     ) {
       throw new ApiError(
         'No TOBY transfer to the hopper wallet was found.',
@@ -983,7 +906,7 @@ export async function POST(
         error,
         {
           fid:
-            canonicalFid,
+            identity.fid,
 
           wallet:
             normalizedWallet,
@@ -1012,9 +935,8 @@ export async function POST(
       if (recovered) {
         if (
           !addressesMatch(
-            recovered
-              .wallet_address,
-            authenticatedWallet,
+            recovered.wallet_address,
+            submittedWallet,
           )
         ) {
           throw new ApiError(
@@ -1061,11 +983,10 @@ export async function POST(
         {
           data,
           transactionHash,
-
           wallet:
             normalizedWallet,
-
-          canonicalFid,
+          canonicalFid:
+            identity.fid,
         },
       );
 
@@ -1079,9 +1000,9 @@ export async function POST(
     }
 
     const profile =
-      canonicalFid
+      identity.fid
         ? await getProfileByFid(
-            canonicalFid,
+            identity.fid,
           )
         : await getProfileByWallet(
             normalizedWallet,
@@ -1168,8 +1089,7 @@ export async function POST(
     );
 
     if (
-      cause instanceof
-      ApiError
+      cause instanceof ApiError
     ) {
       return jsonResponse(
         {
@@ -1188,6 +1108,26 @@ export async function POST(
         ? cause.message
         : 'Unable to verify hop.';
 
+    const lowered =
+      message.toLowerCase();
+
+    const status =
+      lowered.includes(
+        'authentication',
+      ) ||
+      lowered.includes(
+        'session',
+      )
+        ? 401
+        : lowered.includes(
+              'does not match',
+            ) ||
+            lowered.includes(
+              'did not send',
+            )
+          ? 403
+          : 500;
+
     return jsonResponse(
       {
         error:
@@ -1196,7 +1136,7 @@ export async function POST(
         retryable:
           false,
       },
-      500,
+      status,
     );
   }
 }
