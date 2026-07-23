@@ -16,16 +16,32 @@ export type PondParticle =
   | 'snow'
   | 'leaf';
 
+export type MoonPhase =
+  | 'new'
+  | 'waxing-crescent'
+  | 'first-quarter'
+  | 'waxing-gibbous'
+  | 'full'
+  | 'waning-gibbous'
+  | 'last-quarter'
+  | 'waning-crescent';
+
 export type TodaysPond = {
   id: PondThemeId;
   name: string;
   emoji: string;
   description: string;
-  moonPhase: string;
+  moonPhase: MoonPhase;
   particle?: PondParticle;
   particleCount: number;
   goldenToby: boolean;
 };
+
+export const GOLDEN_TOBY_ODDS = 1000;
+export const GOLDEN_TOBY_PERCENT = 100 / GOLDEN_TOBY_ODDS;
+
+export const STARFALL_ODDS = 97;
+export const STARFALL_PERCENT = 100 / STARFALL_ODDS;
 
 const THEMES: Array<
   Omit<TodaysPond, 'goldenToby' | 'moonPhase'>
@@ -41,7 +57,7 @@ const THEMES: Array<
     id: 'rain',
     name: 'Rainy Pond',
     emoji: '🌧️',
-    description: 'Soft rain is falling today',
+    description: 'Soft rain ripples across the pond',
     particle: 'drop',
     particleCount: 18,
   },
@@ -49,7 +65,7 @@ const THEMES: Array<
     id: 'fireflies',
     name: 'Firefly Pond',
     emoji: '✨',
-    description: 'The reeds are glowing tonight',
+    description: 'Tiny lights dance above the reeds',
     particle: 'firefly',
     particleCount: 13,
   },
@@ -57,7 +73,7 @@ const THEMES: Array<
     id: 'blossom',
     name: 'Blossom Pond',
     emoji: '🌸',
-    description: 'Petals are drifting over the water',
+    description: 'Cherry petals drift across the water',
     particle: 'petal',
     particleCount: 12,
   },
@@ -65,7 +81,7 @@ const THEMES: Array<
     id: 'winter',
     name: 'Winter Pond',
     emoji: '❄️',
-    description: 'A quiet frost has reached the pond',
+    description: 'A peaceful frost blankets the shoreline',
     particle: 'snow',
     particleCount: 16,
   },
@@ -73,7 +89,7 @@ const THEMES: Array<
     id: 'autumn',
     name: 'Autumn Pond',
     emoji: '🍂',
-    description: 'Golden leaves are crossing the pond',
+    description: 'Golden leaves float quietly downstream',
     particle: 'leaf',
     particleCount: 12,
   },
@@ -81,26 +97,26 @@ const THEMES: Array<
     id: 'lotus',
     name: 'Lotus Bloom',
     emoji: '🪷',
-    description: 'The lotus flowers opened today',
+    description: 'Lotus flowers have opened this morning',
     particleCount: 0,
   },
   {
     id: 'rainbow',
     name: 'Rainbow Pond',
     emoji: '🌈',
-    description: 'Color has appeared above the water',
+    description: 'A rainbow stretches across the pond',
     particleCount: 0,
   },
   {
     id: 'shooting-star',
     name: 'Starfall Pond',
     emoji: '⭐',
-    description: 'Watch the sky closely today',
+    description: 'Keep your eyes on the night sky',
     particleCount: 0,
   },
 ];
 
-const MOON_PHASES = [
+const MOON_PHASES: readonly MoonPhase[] = [
   'new',
   'waxing-crescent',
   'first-quarter',
@@ -109,13 +125,13 @@ const MOON_PHASES = [
   'waning-gibbous',
   'last-quarter',
   'waning-crescent',
-] as const;
+];
 
 function hashString(value: string): number {
   let hash = 2166136261;
 
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
 
@@ -130,34 +146,28 @@ export function getTodaysPond(
   date = new Date(),
 ): TodaysPond {
   const dayKey = getUtcDayKey(date);
-  const seed = hashString(`toby-hop:${dayKey}`);
 
-  /*
-    Starfall appears much less frequently than ordinary themes.
-  */
+  const pondSeed = hashString(`pond:${dayKey}`);
+  const moonSeed = hashString(`moon:${dayKey}`);
+  const goldenSeed = hashString(`golden:${dayKey}`);
+
+  const starfallIndex = THEMES.length - 1;
   const normalThemeCount = THEMES.length - 1;
 
-  const themeIndex =
-    seed % 97 === 0
-      ? THEMES.length - 1
-      : seed % normalThemeCount;
+  const isStarfall =
+    pondSeed % STARFALL_ODDS === 0;
 
-  /*
-    One globally shared Golden Toby date in approximately
-    every 1000 UTC dates. It is visual only.
-  */
-  const goldenToby =
-    hashString(`golden-toby:${dayKey}`) % 1000 === 0;
-
-  const moonPhase =
-    MOON_PHASES[
-      hashString(`moon:${dayKey}`) %
-        MOON_PHASES.length
-    ];
+  const themeIndex = isStarfall
+    ? starfallIndex
+    : pondSeed % normalThemeCount;
 
   return {
     ...THEMES[themeIndex],
-    goldenToby,
-    moonPhase,
+    moonPhase:
+      MOON_PHASES[
+        moonSeed % MOON_PHASES.length
+      ],
+    goldenToby:
+      goldenSeed % GOLDEN_TOBY_ODDS === 0,
   };
 }
