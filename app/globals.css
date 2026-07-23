@@ -3352,3 +3352,79 @@ img {
     transition-duration: 0.01ms !important;
   }
 }
+.pond-weather-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  margin-bottom: 96px;
+  padding: 16px;
+}
+
+.pond-weather-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.pond-weather-emoji {
+  display: grid;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(196, 239, 224, 0.16);
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(110, 209, 184, 0.14),
+      rgba(28, 76, 85, 0.18)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 25px;
+}
+
+.pond-weather-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.pond-weather-copy strong {
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pond-weather-copy > span:last-child {
+  color: rgba(224, 244, 239, 0.68);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pond-weather-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.pond-weather-condition {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid rgba(172, 226, 211, 0.14);
+  border-radius: 999px;
+  background: rgba(5, 28, 34, 0.42);
+  color: rgba(229, 248, 242, 0.82);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  text-transform: uppercase;
+}
