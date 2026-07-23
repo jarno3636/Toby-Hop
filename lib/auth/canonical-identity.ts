@@ -19,23 +19,36 @@ export type CanonicalAuthMethod =
 export type CanonicalHopUserRow = {
   fid: number;
   wallet_address: string | null;
+
   username: string | null;
   display_name: string | null;
   pfp_url: string | null;
+
   current_title: string | null;
+
   total_hops: number | string | null;
   current_streak: number | string | null;
   longest_streak: number | string | null;
   big_pond_energy: number | string | null;
-  total_toby_atomic: number | string | null;
-  total_usdc_atomic: number | string | null;
+
+  /*
+    Atomic token values must arrive from PostgreSQL as text.
+
+    JavaScript numbers cannot safely represent values this large.
+  */
+  total_toby_atomic: string | null;
+  total_usdc_atomic: string | null;
+
   first_hop_at: string | null;
   last_hop_at: string | null;
   last_hop_day?: string | null;
+
   today_hopped?: boolean | null;
   rank?: number | string | null;
+
   created_at?: string | null;
   updated_at?: string | null;
+
   [key: string]: unknown;
 };
 
@@ -73,9 +86,30 @@ function safeNumber(
 function safeAtomic(
   value: unknown,
 ): string {
+  /*
+    Atomic values must be returned by PostgreSQL as base-10 text.
+
+    Do not silently accept JavaScript numbers here because a number
+    may already have lost precision before reaching this function.
+  */
+  if (
+    typeof value !== 'string'
+  ) {
+    return '0';
+  }
+
+  const cleaned =
+    value.trim();
+
+  if (
+    !/^-?\d+$/.test(cleaned)
+  ) {
+    return '0';
+  }
+
   try {
     return BigInt(
-      String(value ?? '0'),
+      cleaned,
     ).toString();
   } catch {
     return '0';
@@ -87,10 +121,14 @@ function maximumAtomic(
   second: unknown,
 ): string {
   const firstValue =
-    BigInt(safeAtomic(first));
+    BigInt(
+      safeAtomic(first),
+    );
 
   const secondValue =
-    BigInt(safeAtomic(second));
+    BigInt(
+      safeAtomic(second),
+    );
 
   return (
     firstValue >= secondValue
@@ -100,8 +138,14 @@ function maximumAtomic(
 }
 
 function earliestDate(
-  first: string | null | undefined,
-  second: string | null | undefined,
+  first:
+    | string
+    | null
+    | undefined,
+  second:
+    | string
+    | null
+    | undefined,
 ): string | null {
   if (!first) {
     return second ?? null;
@@ -117,11 +161,19 @@ function earliestDate(
   const secondTime =
     Date.parse(second);
 
-  if (!Number.isFinite(firstTime)) {
+  if (
+    !Number.isFinite(
+      firstTime,
+    )
+  ) {
     return second;
   }
 
-  if (!Number.isFinite(secondTime)) {
+  if (
+    !Number.isFinite(
+      secondTime,
+    )
+  ) {
     return first;
   }
 
@@ -131,8 +183,14 @@ function earliestDate(
 }
 
 function latestDate(
-  first: string | null | undefined,
-  second: string | null | undefined,
+  first:
+    | string
+    | null
+    | undefined,
+  second:
+    | string
+    | null
+    | undefined,
 ): string | null {
   if (!first) {
     return second ?? null;
@@ -148,11 +206,19 @@ function latestDate(
   const secondTime =
     Date.parse(second);
 
-  if (!Number.isFinite(firstTime)) {
+  if (
+    !Number.isFinite(
+      firstTime,
+    )
+  ) {
     return second;
   }
 
-  if (!Number.isFinite(secondTime)) {
+  if (
+    !Number.isFinite(
+      secondTime,
+    )
+  ) {
     return first;
   }
 
@@ -162,20 +228,28 @@ function latestDate(
 }
 
 function chooseTitle(
-  fidUser: CanonicalHopUserRow | null,
-  walletUser: CanonicalHopUserRow | null,
+  fidUser:
+    CanonicalHopUserRow | null,
+  walletUser:
+    CanonicalHopUserRow | null,
 ): string {
   const fidTitle =
-    fidUser?.current_title?.trim();
+    fidUser?.current_title
+      ?.trim();
 
   const walletTitle =
-    walletUser?.current_title?.trim();
+    walletUser?.current_title
+      ?.trim();
 
   const fidHops =
-    safeNumber(fidUser?.total_hops);
+    safeNumber(
+      fidUser?.total_hops,
+    );
 
   const walletHops =
-    safeNumber(walletUser?.total_hops);
+    safeNumber(
+      walletUser?.total_hops,
+    );
 
   if (
     walletHops > fidHops &&
@@ -193,7 +267,8 @@ function chooseTitle(
 
   if (
     walletTitle &&
-    walletTitle !== 'New Hopper'
+    walletTitle !==
+      'New Hopper'
   ) {
     return walletTitle;
   }
@@ -206,12 +281,19 @@ function chooseTitle(
 }
 
 function mergeRows(
-  sessionFid: number | null,
-  sessionWallet: Address | null,
-  fidUser: CanonicalHopUserRow | null,
-  walletUser: CanonicalHopUserRow | null,
+  sessionFid:
+    number | null,
+  sessionWallet:
+    Address | null,
+  fidUser:
+    CanonicalHopUserRow | null,
+  walletUser:
+    CanonicalHopUserRow | null,
 ): CanonicalHopUserRow | null {
-  if (!fidUser && !walletUser) {
+  if (
+    !fidUser &&
+    !walletUser
+  ) {
     return null;
   }
 
@@ -225,9 +307,17 @@ function mergeRows(
 
   const ranks =
     [
-      safeNumber(fidUser?.rank),
-      safeNumber(walletUser?.rank),
-    ].filter((rank) => rank > 0);
+      safeNumber(
+        fidUser?.rank,
+      ),
+
+      safeNumber(
+        walletUser?.rank,
+      ),
+    ].filter(
+      (rank) =>
+        rank > 0,
+    );
 
   return {
     ...walletUser,
@@ -235,19 +325,19 @@ function mergeRows(
 
     fid:
       sessionFid ??
-      (
-        typeof base.fid === 'number'
-          ? base.fid
-          : 0
+      safeNumber(
+        base.fid,
       ),
 
     wallet_address:
       sessionWallet ??
       normalizeAddress(
-        fidUser?.wallet_address,
+        fidUser
+          ?.wallet_address,
       ) ??
       normalizeAddress(
-        walletUser?.wallet_address,
+        walletUser
+          ?.wallet_address,
       ),
 
     username:
@@ -256,8 +346,10 @@ function mergeRows(
       null,
 
     display_name:
-      fidUser?.display_name ??
-      walletUser?.display_name ??
+      fidUser
+        ?.display_name ??
+      walletUser
+        ?.display_name ??
       null,
 
     pfp_url:
@@ -274,101 +366,140 @@ function mergeRows(
     total_hops:
       Math.max(
         safeNumber(
-          fidUser?.total_hops,
+          fidUser
+            ?.total_hops,
         ),
+
         safeNumber(
-          walletUser?.total_hops,
+          walletUser
+            ?.total_hops,
         ),
       ),
 
     current_streak:
       Math.max(
         safeNumber(
-          fidUser?.current_streak,
+          fidUser
+            ?.current_streak,
         ),
+
         safeNumber(
-          walletUser?.current_streak,
+          walletUser
+            ?.current_streak,
         ),
       ),
 
     longest_streak:
       Math.max(
         safeNumber(
-          fidUser?.longest_streak,
+          fidUser
+            ?.longest_streak,
         ),
+
         safeNumber(
-          walletUser?.longest_streak,
+          walletUser
+            ?.longest_streak,
         ),
       ),
 
     big_pond_energy:
       Math.max(
         safeNumber(
-          fidUser?.big_pond_energy,
+          fidUser
+            ?.big_pond_energy,
         ),
+
         safeNumber(
-          walletUser?.big_pond_energy,
+          walletUser
+            ?.big_pond_energy,
         ),
       ),
 
     total_toby_atomic:
       maximumAtomic(
-        fidUser?.total_toby_atomic,
-        walletUser?.total_toby_atomic,
+        fidUser
+          ?.total_toby_atomic,
+
+        walletUser
+          ?.total_toby_atomic,
       ),
 
     total_usdc_atomic:
       maximumAtomic(
-        fidUser?.total_usdc_atomic,
-        walletUser?.total_usdc_atomic,
+        fidUser
+          ?.total_usdc_atomic,
+
+        walletUser
+          ?.total_usdc_atomic,
       ),
 
     first_hop_at:
       earliestDate(
-        fidUser?.first_hop_at,
-        walletUser?.first_hop_at,
+        fidUser
+          ?.first_hop_at,
+
+        walletUser
+          ?.first_hop_at,
       ),
 
     last_hop_at:
       latestDate(
-        fidUser?.last_hop_at,
-        walletUser?.last_hop_at,
+        fidUser
+          ?.last_hop_at,
+
+        walletUser
+          ?.last_hop_at,
       ),
 
     last_hop_day:
       latestDate(
-        fidUser?.last_hop_day,
-        walletUser?.last_hop_day,
+        fidUser
+          ?.last_hop_day,
+
+        walletUser
+          ?.last_hop_day,
       ),
 
     today_hopped:
       Boolean(
-        fidUser?.today_hopped ||
-        walletUser?.today_hopped,
+        fidUser
+          ?.today_hopped ||
+        walletUser
+          ?.today_hopped,
       ),
 
     rank:
-      ranks.length
-        ? Math.min(...ranks)
+      ranks.length > 0
+        ? Math.min(
+            ...ranks,
+          )
         : null,
 
     created_at:
       earliestDate(
-        fidUser?.created_at,
-        walletUser?.created_at,
+        fidUser
+          ?.created_at,
+
+        walletUser
+          ?.created_at,
       ),
 
     updated_at:
       latestDate(
-        fidUser?.updated_at,
-        walletUser?.updated_at,
+        fidUser
+          ?.updated_at,
+
+        walletUser
+          ?.updated_at,
       ),
   };
 }
 
 async function loadByFid(
   fid: number,
-): Promise<CanonicalHopUserRow | null> {
+): Promise<
+  CanonicalHopUserRow | null
+> {
   const db =
     supabaseAdmin();
 
@@ -376,26 +507,40 @@ async function loadByFid(
     data,
     error,
   } =
-    await db
-      .from('toby_hop_users')
-      .select('*')
-      .eq('fid', fid)
-      .maybeSingle();
+    await db.rpc(
+      'toby_hop_get_user_by_fid',
+      {
+        p_fid:
+          fid,
+      },
+    );
 
   if (error) {
-    throw error;
+    console.error(
+      'Unable to load canonical user by FID:',
+      error,
+    );
+
+    throw new Error(
+      error.message,
+    );
   }
 
-  return (
-    data as
-      | CanonicalHopUserRow
-      | null
-  );
+  const row =
+    Array.isArray(data)
+      ? data[0] ?? null
+      : data ?? null;
+
+  return row as
+    | CanonicalHopUserRow
+    | null;
 }
 
 async function loadByWallet(
   wallet: Address,
-): Promise<CanonicalHopUserRow | null> {
+): Promise<
+  CanonicalHopUserRow | null
+> {
   const db =
     supabaseAdmin();
 
@@ -403,38 +548,48 @@ async function loadByWallet(
     data,
     error,
   } =
-    await db
-      .from('toby_hop_users')
-      .select('*')
-      .ilike(
-        'wallet_address',
-        wallet.toLowerCase(),
-      )
-      .limit(20);
+    await db.rpc(
+      'toby_hop_get_users_by_wallet',
+      {
+        p_wallet_address:
+          wallet.toLowerCase(),
+      },
+    );
 
   if (error) {
-    throw error;
+    console.error(
+      'Unable to load canonical user by wallet:',
+      error,
+    );
+
+    throw new Error(
+      error.message,
+    );
   }
 
   const rows =
     (
-      data ??
-      []
+      Array.isArray(data)
+        ? data
+        : data
+          ? [data]
+          : []
     ) as CanonicalHopUserRow[];
 
   if (!rows.length) {
     return null;
   }
 
-  const samePositiveFid =
+  const positiveFidUser =
     rows.find(
       (row) =>
-        typeof row.fid === 'number' &&
-        row.fid > 0,
+        safeNumber(
+          row.fid,
+        ) > 0,
     );
 
-  if (samePositiveFid) {
-    return samePositiveFid;
+  if (positiveFidUser) {
+    return positiveFidUser;
   }
 
   return rows
@@ -447,31 +602,39 @@ async function loadByWallet(
         const firstToby =
           BigInt(
             safeAtomic(
-              first.total_toby_atomic,
+              first
+                .total_toby_atomic,
             ),
           );
 
         const secondToby =
           BigInt(
             safeAtomic(
-              second.total_toby_atomic,
+              second
+                .total_toby_atomic,
             ),
           );
 
         if (
-          firstToby !== secondToby
+          firstToby !==
+          secondToby
         ) {
-          return secondToby > firstToby
-            ? 1
-            : -1;
+          return (
+            secondToby >
+            firstToby
+              ? 1
+              : -1
+          );
         }
 
         return (
           safeNumber(
-            second.total_hops,
+            second
+              .total_hops,
           ) -
           safeNumber(
-            first.total_hops,
+            first
+              .total_hops,
           )
         );
       },
@@ -479,7 +642,9 @@ async function loadByWallet(
 }
 
 export async function readCanonicalIdentity():
-Promise<CanonicalIdentity | null> {
+Promise<
+  CanonicalIdentity | null
+> {
   const session =
     await readAppSession();
 
@@ -488,8 +653,11 @@ Promise<CanonicalIdentity | null> {
   }
 
   const fid =
-    typeof session.fid === 'number' &&
-    Number.isSafeInteger(session.fid) &&
+    typeof session.fid ===
+      'number' &&
+    Number.isSafeInteger(
+      session.fid,
+    ) &&
     session.fid > 0
       ? session.fid
       : null;
@@ -506,11 +674,17 @@ Promise<CanonicalIdentity | null> {
     await Promise.all([
       fid
         ? loadByFid(fid)
-        : Promise.resolve(null),
+        : Promise.resolve(
+            null,
+          ),
 
       sessionWallet
-        ? loadByWallet(sessionWallet)
-        : Promise.resolve(null),
+        ? loadByWallet(
+            sessionWallet,
+          )
+        : Promise.resolve(
+            null,
+          ),
     ]);
 
   const user =
@@ -524,12 +698,14 @@ Promise<CanonicalIdentity | null> {
   const wallet =
     sessionWallet ??
     normalizeAddress(
-      user?.wallet_address,
+      user
+        ?.wallet_address,
     );
 
   const authMethod:
     CanonicalAuthMethod =
-    session.authMethod === 'siwe'
+    session.authMethod ===
+      'siwe'
       ? 'siwe'
       : fid
         ? 'farcaster'
@@ -558,24 +734,34 @@ Promise<CanonicalIdentity> {
 }
 
 export function requireRequestedHopWallet(
-  identity: CanonicalIdentity,
-  requestedWallet: string,
+  identity:
+    CanonicalIdentity,
+  requestedWallet:
+    string,
 ): Address {
-  if (!isAddress(requestedWallet)) {
+  if (
+    !isAddress(
+      requestedWallet,
+    )
+  ) {
     throw new Error(
       'Invalid wallet.',
     );
   }
 
   const wallet =
-    getAddress(requestedWallet);
+    getAddress(
+      requestedWallet,
+    );
 
   if (
-    identity.authMethod === 'siwe'
+    identity.authMethod ===
+    'siwe'
   ) {
     if (
       !identity.wallet ||
-      identity.wallet.toLowerCase() !==
+      identity.wallet
+        .toLowerCase() !==
         wallet.toLowerCase()
     ) {
       throw new Error(
