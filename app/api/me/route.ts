@@ -3,11 +3,15 @@ import {
 } from 'next/server';
 
 import {
-  requireAppSession,
-} from '@/lib/auth/require-app-session';
+  requireCanonicalIdentity,
+} from '@/lib/auth/canonical-identity';
+
 import {
   supabaseAdmin,
 } from '@/lib/supabase/admin';
+
+export const dynamic =
+  'force-dynamic';
 
 function clean(
   value: unknown,
@@ -34,8 +38,8 @@ export async function POST(
   request: Request,
 ) {
   try {
-    const session =
-      await requireAppSession();
+    const identity =
+      await requireCanonicalIdentity();
 
     const body =
       await request
@@ -73,23 +77,21 @@ export async function POST(
 
     let query =
       db
-        .from(
-          'toby_hop_users',
-        )
+        .from('toby_hop_users')
         .update(updates);
 
-    if (session.address) {
-      query =
-        query.eq(
-          'wallet_address',
-          session.address
-            .toLowerCase(),
-        );
-    } else if (session.fid) {
+    if (identity.fid) {
       query =
         query.eq(
           'fid',
-          session.fid,
+          identity.fid,
+        );
+    } else if (identity.wallet) {
+      query =
+        query.ilike(
+          'wallet_address',
+          identity.wallet
+            .toLowerCase(),
         );
     } else {
       throw new Error(
@@ -111,17 +113,42 @@ export async function POST(
 
     return NextResponse.json(
       data,
+      {
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
+      },
     );
   } catch (cause) {
+    const message =
+      cause instanceof Error
+        ? cause.message
+        : 'Unable to update profile.';
+
+    const lowered =
+      message.toLowerCase();
+
     return NextResponse.json(
       {
         error:
-          cause instanceof Error
-            ? cause.message
-            : 'Unable to update profile.',
+          message,
       },
       {
-        status: 401,
+        status:
+          lowered.includes(
+            'authentication',
+          ) ||
+          lowered.includes(
+            'session',
+          )
+            ? 401
+            : 500,
+
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
       },
     );
   }
