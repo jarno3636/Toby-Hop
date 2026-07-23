@@ -120,14 +120,21 @@ type SpecialPondState = {
 };
 
 const API_TIMEOUT_MS = 15_000;
-const SDK_TIMEOUT_MS = 3_000;
+const SDK_TIMEOUT_MS = 6_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRANSACTION_TIMEOUT_MS = 120_000;
 const VERIFICATION_TIMEOUT_MS = 45_000;
-const INITIALIZATION_FALLBACK_MS = 12_000;
+const INITIALIZATION_FALLBACK_MS = 15_000;
 
 const PENDING_HOP_STORAGE_KEY =
   'toby_hop_pending_verification';
+
+const FARCASTER_CONTEXT_RETRY_DELAYS_MS = [
+  0,
+  500,
+  1_000,
+  2_000,
+];
 
 const VERIFY_RETRY_DELAYS_MS = [
   0,
@@ -329,60 +336,84 @@ function clearPendingHop(): void {
 
 async function getSafeMiniAppContext():
 Promise<MiniAppContextResult> {
-  try {
-    const context =
-      await withTimeout(
-        Promise.resolve(
-          sdk.context,
-        ),
-        SDK_TIMEOUT_MS,
-        'Farcaster context timed out.',
-      );
-
-    if (
-      !context ||
-      typeof context !==
-        'object'
-    ) {
-      return {
-        user: null,
-        added: false,
-        available: false,
-      };
-    }
-
-    const typed =
-      context as {
-        user?: MiniAppUser;
-        client?: {
-          added?: boolean;
-        };
-      };
-
-    const user =
-      typed.user &&
-      typeof typed.user.fid ===
-        'number' &&
-      typed.user.fid > 0
-        ? typed.user
-        : null;
-
-    return {
-      user,
-      added:
-        Boolean(
-          typed.client?.added,
-        ),
-      available:
-        Boolean(user),
-    };
-  } catch {
-    return {
+  let latestResult:
+    MiniAppContextResult = {
       user: null,
       added: false,
       available: false,
     };
+
+  for (
+    let attempt = 0;
+    attempt <
+    FARCASTER_CONTEXT_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    const delay =
+      FARCASTER_CONTEXT_RETRY_DELAYS_MS[
+        attempt
+      ] ?? 0;
+
+    if (delay > 0) {
+      await sleep(delay);
+    }
+
+    try {
+      const context =
+        await withTimeout(
+          Promise.resolve(
+            sdk.context,
+          ),
+          SDK_TIMEOUT_MS,
+          'Farcaster context timed out.',
+        );
+
+      if (
+        !context ||
+        typeof context !==
+          'object'
+      ) {
+        continue;
+      }
+
+      const typed =
+        context as {
+          user?: MiniAppUser;
+          client?: {
+            added?: boolean;
+          };
+        };
+
+      const user =
+        typed.user &&
+        typeof typed.user.fid ===
+          'number' &&
+        Number.isSafeInteger(
+          typed.user.fid,
+        ) &&
+        typed.user.fid > 0
+          ? typed.user
+          : null;
+
+      latestResult = {
+        user,
+        added:
+          Boolean(
+            typed.client?.added,
+          ),
+        available:
+          Boolean(user),
+      };
+
+      if (user) {
+        return latestResult;
+      }
+    } catch {
+      // Some Farcaster clients expose context slowly.
+    }
   }
+
+  return latestResult;
 }
 
 function particleSymbol(
@@ -467,6 +498,7 @@ function buildSpecialPondState(
       ),
   };
 }
+
 export function TobyHopApp() {
   const [view, setView] =
     useState<TobyHopView>(
@@ -540,6 +572,12 @@ export function TobyHopApp() {
     useState(true);
 
   const [
+    initialAuthResolved,
+    setInitialAuthResolved,
+  ] =
+    useState(false);
+
+  const [
     hopState,
     setHopState,
   ] =
@@ -602,6 +640,12 @@ export function TobyHopApp() {
 
   const leaderboardRequestRef =
     useRef(0);
+
+  const initializationStartedRef =
+    useRef(false);
+
+  const automaticFarcasterRestoreRef =
+    useRef(false);
 
   const todaysPond =
     useMemo(
@@ -1176,6 +1220,9 @@ export function TobyHopApp() {
                 credentials:
                   'include',
 
+                cache:
+                  'no-store',
+
                 headers: {
                   'content-type':
                     'application/json',
@@ -1232,12 +1279,23 @@ export function TobyHopApp() {
     );
 
   useEffect(() => {
+    if (
+      initializationStartedRef.current
+    ) {
+      return;
+    }
+
+    initializationStartedRef.current =
+      true;
+
     let active = true;
 
     async function initialize() {
-      try {
-        setNotice(null);
+      setLoading(true);
+      setInitialAuthResolved(false);
+      setNotice(null);
 
+      try {
         try {
           await withTimeout(
             sdk.actions.ready(),
@@ -1245,7 +1303,7 @@ export function TobyHopApp() {
             'Farcaster ready timed out.',
           );
         } catch {
-          // Browser use can continue without the Mini App SDK.
+          // Browser sessions can continue without the SDK.
         }
 
         const context =
@@ -1258,7 +1316,10 @@ export function TobyHopApp() {
         const detected:
           HostMode =
           context.available &&
-          context.user?.fid
+          context.user &&
+          typeof context.user.fid ===
+            'number' &&
+          context.user.fid > 0
             ? 'farcaster'
             : 'browser';
 
@@ -1287,21 +1348,26 @@ export function TobyHopApp() {
             await loadAppSession(
               context.user,
             );
-        } catch {
+        } catch (cause) {
+          console.warn(
+            'Stored Toby Hop session was unavailable:',
+            cause,
+          );
+
           restored =
             false;
         }
 
-        /*
-         * When Farcaster's WebView does not restore the cookie,
-         * silently rebuild the app session with Quick Auth.
-         */
         if (
           !restored &&
           detected ===
             'farcaster' &&
-          context.user
+          context.user &&
+          !automaticFarcasterRestoreRef.current
         ) {
+          automaticFarcasterRestoreRef.current =
+            true;
+
           try {
             const result =
               await authenticateWithFarcaster(
@@ -1314,38 +1380,68 @@ export function TobyHopApp() {
                 result?.authenticated,
               );
           } catch (cause) {
-            console.warn(
-              'Automatic Farcaster session restoration failed:',
+            console.error(
+              'Automatic Farcaster restoration failed:',
               cause,
             );
 
-            resetAppSession(
-              context.user,
-            );
+            restored =
+              false;
           }
+        }
+
+        if (!active) {
+          return;
         }
 
         if (
           restored &&
           context.user
         ) {
-          void syncProfile(
+          await syncProfile(
             context.user,
+          );
+        } else if (
+          detected ===
+            'farcaster' &&
+          context.user
+        ) {
+          resetAppSession(
+            context.user,
+          );
+        } else if (
+          detected ===
+            'browser' &&
+          !restored
+        ) {
+          resetAppSession(
+            null,
           );
         }
       } catch (cause) {
-        if (active) {
-          setHostMode(
-            'browser',
-          );
-
-          setErrorNotice(
-            cause,
-            'browser',
-          );
+        if (!active) {
+          return;
         }
+
+        console.error(
+          'Toby Hop initialization failed:',
+          cause,
+        );
+
+        setHostMode(
+          'browser',
+        );
+
+        setErrorNotice(
+          cause,
+          'browser',
+        );
       } finally {
         if (active) {
+          setInitialAuthResolved(
+            true,
+          );
+
           setLoading(
             false,
           );
@@ -1367,7 +1463,10 @@ export function TobyHopApp() {
   ]);
 
   useEffect(() => {
-    if (!loading) {
+    if (
+      !loading ||
+      initialAuthResolved
+    ) {
       return;
     }
 
@@ -1376,6 +1475,10 @@ export function TobyHopApp() {
         () => {
           setLoading(
             false,
+          );
+
+          setInitialAuthResolved(
+            true,
           );
 
           setHostMode(
@@ -1393,7 +1496,7 @@ export function TobyHopApp() {
                   'error',
 
                 message:
-                  'The pond took too long to open. You can still retry.',
+                  'The pond took too long to reconnect. Retry the connection or reopen Toby Hop.',
               },
           );
         },
@@ -1405,21 +1508,9 @@ export function TobyHopApp() {
         timer,
       );
     };
-  }, [loading]);
-
-  useEffect(() => {
-    if (
-      authenticated &&
-      farcasterUser
-    ) {
-      void syncProfile(
-        farcasterUser,
-      );
-    }
   }, [
-    authenticated,
-    farcasterUser,
-    syncProfile,
+    initialAuthResolved,
+    loading,
   ]);
 
   useEffect(() => {
@@ -1479,6 +1570,7 @@ export function TobyHopApp() {
               {
                 method:
                   'GET',
+
                 cache:
                   'no-store',
               },
@@ -1929,17 +2021,41 @@ export function TobyHopApp() {
 
     setNotice(null);
 
-    try {
-      await authenticateWithFarcaster(
-        farcasterUser,
+    automaticFarcasterRestoreRef.current =
+      false;
 
-        address &&
-        isAddress(address)
-          ? getAddress(
-              address,
-            )
-          : null,
+    try {
+      const result =
+        await authenticateWithFarcaster(
+          farcasterUser,
+
+          address &&
+          isAddress(address)
+            ? getAddress(
+                address,
+              )
+            : null,
+        );
+
+      if (
+        !result?.authenticated
+      ) {
+        throw new Error(
+          'Farcaster authentication did not complete.',
+        );
+      }
+
+      await syncProfile(
+        farcasterUser,
       );
+
+      setNotice({
+        kind:
+          'success',
+
+        message:
+          'Your Farcaster pond record was restored.',
+      });
     } catch (cause) {
       setErrorNotice(
         cause,
@@ -2847,7 +2963,7 @@ export function TobyHopApp() {
         authenticated
           ? 'One cent USDC to TOBY'
           : isFarcasterMiniApp
-            ? 'Your record is restored automatically'
+            ? 'Your record restores automatically'
             : 'Connect and sign in with a Base wallet',
 
       connecting:
@@ -2896,11 +3012,12 @@ export function TobyHopApp() {
           aria-live="polite"
         >
           <strong>
-            Opening the pond
+            Opening your pond
           </strong>
 
           <span>
-            Waking Toby up…
+            Restoring your Farcaster profile
+            and daily record…
           </span>
         </div>
       </main>
@@ -3113,6 +3230,7 @@ export function TobyHopApp() {
 
       {!authenticated &&
         isFarcasterMiniApp &&
+        initialAuthResolved &&
         view === 'hop' && (
           <section className="empty-state-card join-pond-card">
             <div
@@ -3124,13 +3242,15 @@ export function TobyHopApp() {
 
             <div>
               <strong>
-                Restoring your pond
+                Connection interrupted
               </strong>
 
               <p>
-                Toby Hop will reconnect
+                Toby Hop normally restores
                 your Farcaster profile
-                automatically.
+                automatically. Retry only
+                when the connection was
+                interrupted.
               </p>
             </div>
 
@@ -3146,8 +3266,8 @@ export function TobyHopApp() {
               }
             >
               {farcasterAuthLoading
-                ? 'RESTORING'
-                : 'RESTORE PROFILE'}
+                ? 'RECONNECTING'
+                : 'RETRY CONNECTION'}
             </button>
           </section>
         )}
