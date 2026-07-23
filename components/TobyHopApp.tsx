@@ -417,16 +417,21 @@ function buildSpecialPondState(
   const particle =
     pond.particle;
 
+  const isRainbow =
+    id.includes('rainbow');
+
   return {
     rainbow:
-      id.includes(
-        'rainbow',
-      ),
+      isRainbow,
 
     rain:
-      id.includes('rain') ||
-      id.includes('storm') ||
-      particle === 'drop',
+      !isRainbow &&
+      (
+        id === 'rain' ||
+        id.includes('rainy') ||
+        id.includes('storm') ||
+        particle === 'drop'
+      ),
 
     snow:
       id.includes('snow') ||
@@ -434,21 +439,13 @@ function buildSpecialPondState(
       particle === 'snow',
 
     shootingStars:
-      id.includes(
-        'shooting-star',
-      ) ||
+      id.includes('shooting-star') ||
       id.includes('meteor') ||
       id.includes('comet'),
 
     fireflies:
-      id.includes(
-        'firefly',
-      ) ||
-      id.includes(
-        'fireflies',
-      ) ||
-      particle ===
-        'firefly',
+      id.includes('firefly') ||
+      particle === 'firefly',
 
     petals:
       id.includes('petal') ||
@@ -470,7 +467,6 @@ function buildSpecialPondState(
       ),
   };
 }
-
 export function TobyHopApp() {
   const [view, setView] =
     useState<TobyHopView>(
