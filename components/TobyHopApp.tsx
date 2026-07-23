@@ -100,7 +100,7 @@ const API_TIMEOUT_MS = 15_000;
 const SDK_TIMEOUT_MS = 3_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRANSACTION_TIMEOUT_MS = 120_000;
-const VERIFICATION_TIMEOUT_MS = 240_000;
+const VERIFICATION_TIMEOUT_MS = 45_000;
 const INITIALIZATION_FALLBACK_MS = 12_000;
 const PENDING_HOP_STORAGE_KEY = 'toby_hop_pending_verification';
 const VERIFY_RETRY_DELAYS_MS = [
@@ -109,6 +109,12 @@ const VERIFY_RETRY_DELAYS_MS = [
   5_000,
   10_000,
   20_000,
+];
+const QUOTE_RETRY_DELAYS_MS = [
+  0,
+  1_000,
+  2_500,
+  5_000,
 ];
 
 type PendingHopRecord = {
@@ -1635,6 +1641,90 @@ export function TobyHopApp() {
     [],
   );
 
+
+  const getHopQuoteWithRetry = useCallback(
+    async (
+      wallet: Address,
+    ): Promise<QuoteResponse> => {
+      let lastError:
+        Error | null = null;
+
+      for (
+        let attempt = 0;
+        attempt < QUOTE_RETRY_DELAYS_MS.length;
+        attempt += 1
+      ) {
+        const delay =
+          QUOTE_RETRY_DELAYS_MS[attempt] ??
+          0;
+
+        if (delay > 0) {
+          await sleep(delay);
+        }
+
+        try {
+          const quoteResponse =
+            await fetchWithTimeout(
+              `/api/hop/quote?wallet=${encodeURIComponent(
+                wallet,
+              )}`,
+              {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                  accept:
+                    'application/json',
+                },
+              },
+              API_TIMEOUT_MS,
+            );
+
+          return await readJsonResponse<QuoteResponse>(
+            quoteResponse,
+            'Unable to prepare today’s hop.',
+          );
+        } catch (cause) {
+          lastError =
+            cause instanceof Error
+              ? cause
+              : new Error(
+                  'Unable to prepare today’s hop.',
+                );
+
+          const message =
+            lastError.message
+              .toLowerCase();
+
+          if (
+            message.includes(
+              'already complete',
+            ) ||
+            message.includes(
+              'authenticated session',
+            ) ||
+            message.includes(
+              'authentication',
+            ) ||
+            message.includes(
+              'wallet does not match',
+            )
+          ) {
+            throw lastError;
+          }
+        }
+      }
+
+      throw (
+        lastError ??
+        new Error(
+          'Unable to prepare today’s hop.',
+        )
+      );
+    },
+    [],
+  );
+
   async function performHop() {
     if (
       hopInProgressRef.current ||
@@ -1723,22 +1813,9 @@ export function TobyHopApp() {
 
       setHopState('quoting');
 
-      const quoteResponse =
-        await fetchWithTimeout(
-          `/api/hop/quote?wallet=${encodeURIComponent(
-            wallet,
-          )}`,
-          {
-            method: 'GET',
-            credentials: 'include',
-            cache: 'no-store',
-          },
-        );
-
       const quote =
-        await readJsonResponse<QuoteResponse>(
-          quoteResponse,
-          'Unable to prepare today’s hop.',
+        await getHopQuoteWithRetry(
+          wallet,
         );
 
       if (
