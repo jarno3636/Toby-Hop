@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server';
+import {
+  NextResponse,
+} from 'next/server';
 import {
   createPublicClient,
   decodeEventLog,
@@ -10,26 +12,39 @@ import {
   type Address,
   type Hash,
 } from 'viem';
-import { base } from 'viem/chains';
+import {
+  base,
+} from 'viem/chains';
 
-import { requireWalletSession } from '@/lib/auth/require-wallet-session';
+import {
+  readAppSession,
+} from '@/lib/auth/app-session';
 import {
   assertTokenConfig,
   HOP_USDC_ATOMIC,
   TOBY_ADDRESS,
   USDC_ADDRESS,
 } from '@/lib/contracts';
-import { supabaseAdmin } from '@/lib/supabase/admin';
-import { buildCast } from '@/lib/cast';
-import { formatAtomic } from '@/lib/format';
+import {
+  supabaseAdmin,
+} from '@/lib/supabase/admin';
+import {
+  buildCast,
+} from '@/lib/cast';
+import {
+  formatAtomic,
+} from '@/lib/format';
 
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http(
-    process.env.BASE_RPC_URL ||
-      'https://mainnet.base.org',
-  ),
-});
+const publicClient =
+  createPublicClient({
+    chain:
+      base,
+    transport:
+      http(
+        process.env.BASE_RPC_URL ||
+          'https://mainnet.base.org',
+      ),
+  });
 
 type VerifyHopBody = {
   txHash?: string;
@@ -60,13 +75,18 @@ function addressesMatch(
   );
 }
 
-function getAllowedSwapTargets(): string[] {
+function getAllowedSwapTargets():
+string[] {
   return (
-    process.env.ALLOWED_SWAP_TARGETS || ''
+    process.env
+      .ALLOWED_SWAP_TARGETS ||
+    ''
   )
     .split(',')
     .map((value) =>
-      value.trim().toLowerCase(),
+      value
+        .trim()
+        .toLowerCase(),
     )
     .filter(Boolean);
 }
@@ -76,20 +96,64 @@ export async function POST(
 ) {
   try {
     /*
-      The authenticated identity now comes from the secure
-      HTTP-only SIWE wallet session, not Farcaster context.
+      This route trusts the Toby Hop app session cookie.
+
+      Do not use requireFarcasterUser(request) here. That helper
+      requires a Farcaster Quick Auth Bearer token.
+
+      Do not require SIWE only here either. Farcaster hops create
+      a valid app session with authMethod "farcaster", fid, and
+      the connected wallet address.
     */
     const session =
-      await requireWalletSession();
+      await readAppSession();
+
+    if (!session) {
+      return NextResponse.json(
+        {
+          error:
+            'Authentication required.',
+        },
+        {
+          status: 401,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
+        },
+      );
+    }
+
+    if (!session.address) {
+      return NextResponse.json(
+        {
+          error:
+            'The authenticated session is missing a linked wallet.',
+        },
+        {
+          status: 401,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
+        },
+      );
+    }
 
     assertTokenConfig();
 
     const body =
-      (await request.json()) as VerifyHopBody;
+      (await request
+        .json()
+        .catch(
+          () => ({}),
+        )) as VerifyHopBody;
 
     if (
       !body.txHash ||
-      !isHash(body.txHash)
+      !isHash(
+        body.txHash,
+      )
     ) {
       return NextResponse.json(
         {
@@ -98,13 +162,19 @@ export async function POST(
         },
         {
           status: 400,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
         },
       );
     }
 
     if (
       !body.walletAddress ||
-      !isAddress(body.walletAddress)
+      !isAddress(
+        body.walletAddress,
+      )
     ) {
       return NextResponse.json(
         {
@@ -113,6 +183,10 @@ export async function POST(
         },
         {
           status: 400,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
         },
       );
     }
@@ -127,10 +201,6 @@ export async function POST(
         session.address,
       );
 
-    /*
-      A user may only submit a transaction for the wallet
-      that authenticated through SIWE.
-    */
     if (
       !addressesMatch(
         submittedWallet,
@@ -144,6 +214,10 @@ export async function POST(
         },
         {
           status: 403,
+          headers: {
+            'Cache-Control':
+              'no-store',
+          },
         },
       );
     }
@@ -151,20 +225,20 @@ export async function POST(
     const transactionHash =
       body.txHash as Hash;
 
-    /*
-      Wait for the Base transaction to be mined and receive
-      two confirmations before updating any records.
-    */
     const receipt =
       await publicClient
         .waitForTransactionReceipt({
-          hash: transactionHash,
-          confirmations: 2,
-          timeout: 120_000,
+          hash:
+            transactionHash,
+          confirmations:
+            2,
+          timeout:
+            120_000,
         });
 
     if (
-      receipt.status !== 'success'
+      receipt.status !==
+      'success'
     ) {
       throw new Error(
         'The swap transaction failed.',
@@ -174,13 +248,10 @@ export async function POST(
     const transaction =
       await publicClient
         .getTransaction({
-          hash: transactionHash,
+          hash:
+            transactionHash,
         });
 
-    /*
-      Confirm that the authenticated wallet actually submitted
-      the transaction.
-    */
     if (
       !addressesMatch(
         transaction.from,
@@ -192,16 +263,6 @@ export async function POST(
       );
     }
 
-    /*
-      Optionally restrict accepted swaps to known router contracts.
-
-      Example:
-
-      ALLOWED_SWAP_TARGETS=0xRouterOne,0xRouterTwo
-
-      Leave the variable empty during initial development.
-      Configure it before production launch.
-    */
     const allowedTargets =
       getAllowedSwapTargets();
 
@@ -227,8 +288,11 @@ export async function POST(
       }
     }
 
-    let usdcSpent = 0n;
-    let tobyReceived = 0n;
+    let usdcSpent =
+      0n;
+
+    let tobyReceived =
+      0n;
 
     const normalizedWallet =
       normalizeAddress(
@@ -245,21 +309,18 @@ export async function POST(
         TOBY_ADDRESS,
       );
 
-    /*
-      Read the confirmed ERC-20 Transfer logs.
-
-      The browser does not tell the server how much was exchanged
-      or received. The server derives those amounts from Base.
-    */
     for (
       const log of receipt.logs
     ) {
       try {
         const decoded =
           decodeEventLog({
-            abi: erc20Abi,
-            data: log.data,
-            topics: log.topics,
+            abi:
+              erc20Abi,
+            data:
+              log.data,
+            topics:
+              log.topics,
           });
 
         if (
@@ -281,9 +342,6 @@ export async function POST(
             log.address,
           );
 
-        /*
-          Count USDC transferred out of the hopper wallet.
-        */
         if (
           tokenAddress ===
             normalizedUsdc &&
@@ -295,9 +353,6 @@ export async function POST(
             args.value;
         }
 
-        /*
-          Count TOBY transferred directly into the hopper wallet.
-        */
         if (
           tokenAddress ===
             normalizedToby &&
@@ -309,10 +364,7 @@ export async function POST(
             args.value;
         }
       } catch {
-        /*
-          Receipts may contain logs from routers, pools and other
-          contracts. Ignore anything that is not an ERC-20 Transfer.
-        */
+        // Ignore non ERC-20 Transfer logs.
       }
     }
 
@@ -325,7 +377,9 @@ export async function POST(
       );
     }
 
-    if (tobyReceived <= 0n) {
+    if (
+      tobyReceived <= 0n
+    ) {
       throw new Error(
         'No TOBY transfer to the hopper wallet was found.',
       );
@@ -334,41 +388,30 @@ export async function POST(
     const db =
       supabaseAdmin();
 
-    /*
-      This wallet-based database function atomically:
-
-      - prevents duplicate transaction hashes
-      - permits one official hop per wallet per UTC day
-      - calculates the streak
-      - calculates the daily hopper position
-      - adds one Big Pond Energy
-      - updates lifetime USDC and TOBY totals
-      - assigns the current title
-    */
     const {
       data,
       error,
-    } = await db.rpc(
-      'toby_hop_record_verified_wallet',
-      {
-        p_wallet_address:
-          normalizedWallet,
-
-        p_transaction_hash:
-          transactionHash.toLowerCase(),
-
-        p_block_number:
-          Number(
-            receipt.blockNumber,
-          ),
-
-        p_input_amount_atomic:
-          usdcSpent.toString(),
-
-        p_toby_amount_atomic:
-          tobyReceived.toString(),
-      },
-    );
+    } =
+      await db.rpc(
+        'toby_hop_record_verified_wallet',
+        {
+          p_wallet_address:
+            normalizedWallet,
+          p_transaction_hash:
+            transactionHash
+              .toLowerCase(),
+          p_block_number:
+            Number(
+              receipt.blockNumber,
+            ),
+          p_input_amount_atomic:
+            usdcSpent
+              .toString(),
+          p_toby_amount_atomic:
+            tobyReceived
+              .toString(),
+        },
+      );
 
     if (error) {
       throw error;
@@ -389,27 +432,26 @@ export async function POST(
       );
     }
 
-    /*
-      Load the optional profile information associated with
-      this wallet. A wallet-only user may simply be shown as
-      "Hopper", but an FID is never inserted into the cast.
-    */
     const {
       data: profile,
-      error: profileError,
-    } = await db
-      .from('toby_hop_users')
-      .select(
-        `
-          display_name,
-          username
-        `,
-      )
-      .eq(
-        'wallet_address',
-        normalizedWallet,
-      )
-      .maybeSingle();
+      error:
+        profileError,
+    } =
+      await db
+        .from(
+          'toby_hop_users',
+        )
+        .select(
+          `
+            display_name,
+            username
+          `,
+        )
+        .eq(
+          'wallet_address',
+          normalizedWallet,
+        )
+        .maybeSingle();
 
     if (profileError) {
       console.error(
@@ -418,9 +460,6 @@ export async function POST(
       );
     }
 
-    /*
-      TOBY currently uses 18 decimals.
-    */
     const tobyDisplay =
       formatAtomic(
         tobyReceived,
@@ -428,52 +467,48 @@ export async function POST(
         2,
       );
 
-    /*
-      Cast language remains playful and never exposes technical
-      identifiers such as an FID or complete wallet address.
-    */
     const castText =
       buildCast({
         displayName:
-          profile?.display_name ??
+          profile
+            ?.display_name ??
           null,
-
         username:
-          profile?.username ??
+          profile
+            ?.username ??
           null,
-
         streak:
-          result.streak_after,
-
+          result
+            .streak_after,
         totalHops:
-          result.total_hops_after,
-
+          result
+            .total_hops_after,
         tobyDisplay,
-
         dailyPosition:
-          result.daily_position,
-
+          result
+            .daily_position,
         title:
-          result.title_after,
+          result
+            .title_after,
       });
 
     const {
       error:
         castUpdateError,
-    } = await db
-      .from('toby_hops')
-      .update({
-        cast_text: castText,
-      })
-      .eq(
-        'id',
-        result.hop_id,
-      );
+    } =
+      await db
+        .from(
+          'toby_hops',
+        )
+        .update({
+          cast_text:
+            castText,
+        })
+        .eq(
+          'id',
+          result.hop_id,
+        );
 
-    /*
-      Storing the cast text is helpful but not critical enough
-      to invalidate an otherwise verified hop.
-    */
     if (castUpdateError) {
       console.error(
         'Unable to store cast text:',
@@ -481,38 +516,43 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({
-      hopId:
-        result.hop_id,
-
-      tobyAtomic:
-        tobyReceived.toString(),
-
-      tobyDisplay,
-
-      usdcAtomic:
-        usdcSpent.toString(),
-
-      streak:
-        result.streak_after,
-
-      totalHops:
-        result.total_hops_after,
-
-      dailyPosition:
-        result.daily_position,
-
-      title:
-        result.title_after,
-
-      castText,
-
-      txHash:
-        transactionHash,
-    });
+    return NextResponse.json(
+      {
+        hopId:
+          result.hop_id,
+        tobyAtomic:
+          tobyReceived
+            .toString(),
+        tobyDisplay,
+        usdcAtomic:
+          usdcSpent
+            .toString(),
+        streak:
+          result
+            .streak_after,
+        totalHops:
+          result
+            .total_hops_after,
+        dailyPosition:
+          result
+            .daily_position,
+        title:
+          result
+            .title_after,
+        castText,
+        txHash:
+          transactionHash,
+      },
+      {
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
+      },
+    );
   } catch (cause) {
     console.error(
-      'Toby Hop verification error:',
+      'POST /api/hop/verify failed:',
       cause,
     );
 
@@ -532,10 +572,15 @@ export async function POST(
 
     return NextResponse.json(
       {
-        error: message,
+        error:
+          message,
       },
       {
         status,
+        headers: {
+          'Cache-Control':
+            'no-store',
+        },
       },
     );
   }
