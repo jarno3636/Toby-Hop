@@ -1,17 +1,25 @@
+'use client';
+
 import Link from 'next/link';
-import { FALLBACK_PFP } from '@/lib/toby-hop-ui';
+
+import {
+  FALLBACK_PFP,
+} from '@/lib/toby-hop-ui';
 
 export type TobyHopView =
   | 'hop'
   | 'leaders'
   | 'me';
 
-const ADMIN_FID = 1121193;
+const ADMIN_FID =
+  1121193;
 
 type BottomNavProps = {
   view: TobyHopView;
-  pfpUrl?: string | null;
-  fid?: number | null;
+  pfpUrl?:
+    string | null;
+  fid?:
+    number | null;
   onChange: (
     view: TobyHopView,
   ) => void;
@@ -24,7 +32,8 @@ export function BottomNav({
   onChange,
 }: BottomNavProps) {
   const isAdmin =
-    Number(fid) === ADMIN_FID;
+    Number(fid) ===
+    ADMIN_FID;
 
   return (
     <nav
@@ -45,7 +54,10 @@ export function BottomNav({
         <span aria-hidden="true">
           🐸
         </span>
-        <span>Hop</span>
+
+        <span>
+          Hop
+        </span>
       </button>
 
       <button
@@ -62,7 +74,10 @@ export function BottomNav({
         <span aria-hidden="true">
           🏆
         </span>
-        <span>Leaders</span>
+
+        <span>
+          Leaders
+        </span>
       </button>
 
       <button
@@ -86,26 +101,33 @@ export function BottomNav({
           style={{
             width: 24,
             height: 24,
-            borderRadius: 999,
+            borderRadius:
+              999,
             objectFit:
               'cover',
             flex:
               '0 0 auto',
           }}
         />
-        <span>Me</span>
+
+        <span>
+          Me
+        </span>
       </button>
 
       {isAdmin ? (
         <Link
           href="/admin"
-          className="adminNavLink"
+          className="admin-nav-link"
           aria-label="Open Toby Hop admin"
         >
           <span aria-hidden="true">
             ⚙️
           </span>
-          <span>Admin</span>
+
+          <span>
+            Admin
+          </span>
         </Link>
       ) : null}
     </nav>
