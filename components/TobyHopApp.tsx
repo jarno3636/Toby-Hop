@@ -37,6 +37,7 @@ import {
   type LeaderRowWithWallet,
 } from '@/components/toby-hop/LeaderboardPanel';
 import { MePanel } from '@/components/toby-hop/MePanel';
+import { LivingPondLayer } from '@/components/toby-hop/LivingPondLayer';
 import { NoticeCard } from '@/components/toby-hop/NoticeCard';
 import {
   PondConditionsPanel,
