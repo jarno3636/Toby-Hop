@@ -67,6 +67,7 @@ export async function GET() {
   }
 
   const { fid } = authorization.admin;
+  const supabase = supabaseAdmin();
 
   const [
     userResult,
@@ -74,7 +75,7 @@ export async function GET() {
     deliveryResult,
     enabledCountResult,
   ] = await Promise.all([
-    supabaseAdmin
+    supabase
       .from("toby_hop_users")
       .select(
         "fid, notification_url, notification_token, notifications_enabled, notifications_updated_at",
@@ -82,7 +83,7 @@ export async function GET() {
       .eq("fid", fid)
       .maybeSingle<AdminUserRow>(),
 
-    supabaseAdmin
+    supabase
       .from("toby_hop_webhook_events")
       .select(
         "event_type, processed, processing_error, received_at",
@@ -92,7 +93,7 @@ export async function GET() {
       .limit(1)
       .maybeSingle<WebhookRow>(),
 
-    supabaseAdmin
+    supabase
       .from("toby_hop_notification_deliveries")
       .select(
         [
@@ -114,7 +115,7 @@ export async function GET() {
       .limit(1)
       .maybeSingle<DeliveryRow>(),
 
-    supabaseAdmin
+    supabase
       .from("toby_hop_users")
       .select("fid", {
         count: "exact",
@@ -124,7 +125,10 @@ export async function GET() {
   ]);
 
   if (userResult.error) {
-    console.error("Failed to load admin notification user", userResult.error);
+    console.error(
+      "Failed to load admin notification user",
+      userResult.error,
+    );
 
     return NextResponse.json(
       {
@@ -141,11 +145,17 @@ export async function GET() {
   }
 
   if (webhookResult.error) {
-    console.error("Failed to load last webhook", webhookResult.error);
+    console.error(
+      "Failed to load last webhook",
+      webhookResult.error,
+    );
   }
 
   if (deliveryResult.error) {
-    console.error("Failed to load last delivery", deliveryResult.error);
+    console.error(
+      "Failed to load last delivery",
+      deliveryResult.error,
+    );
   }
 
   if (enabledCountResult.error) {
@@ -156,6 +166,10 @@ export async function GET() {
   }
 
   const user = userResult.data;
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.APP_URL ??
+    null;
 
   return NextResponse.json(
     {
@@ -163,17 +177,10 @@ export async function GET() {
       adminFid: fid,
 
       environment: {
-        appUrl:
-          process.env.NEXT_PUBLIC_APP_URL ??
-          process.env.APP_URL ??
-          null,
-        webhookUrl:
-          process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL
-            ? `${
-                process.env.NEXT_PUBLIC_APP_URL ??
-                process.env.APP_URL
-              }/api/webhook`
-            : null,
+        appUrl,
+        webhookUrl: appUrl
+          ? `${appUrl.replace(/\/$/, "")}/api/webhook`
+          : null,
       },
 
       notificationUser: user
@@ -195,7 +202,6 @@ export async function GET() {
         : null,
 
       enabledUserCount: enabledCountResult.count ?? 0,
-
       lastWebhook: webhookResult.data ?? null,
       lastDelivery: deliveryResult.data ?? null,
     },
