@@ -168,9 +168,11 @@ export async function POST(
   }
 
   /*
-    Never trust fid, event type, URL, or token directly from
-    requestJson. parseWebhookEvent verifies the Farcaster
-    signature and returns the authenticated event data.
+    Never trust the FID, event type, notification URL, or
+    notification token directly from the incoming JSON.
+
+    parseWebhookEvent verifies the signed Farcaster event and
+    returns authenticated event data.
   */
   let verifiedData:
     Awaited<
@@ -227,17 +229,18 @@ export async function POST(
       );
     }
 
+    /*
+      Valid but unsupported events are acknowledged so the
+      Farcaster client does not repeatedly retry them.
+    */
     if (
       !isSupportedEvent(
         eventType,
       )
     ) {
-      /*
-        Acknowledge valid but currently unsupported Farcaster
-        events so the client does not repeatedly retry them.
-      */
       const {
-        error: unknownEventError,
+        error:
+          unknownEventError,
       } =
         await db
           .from(
@@ -271,6 +274,10 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         ignored: true,
+        event:
+          eventType ||
+          'unknown',
+        fid,
       });
     }
 
@@ -283,10 +290,10 @@ export async function POST(
         : null;
 
     /*
-      Save the verified event for debugging and auditing.
+      Retain the signed request and verified event for debugging.
 
-      The raw signed envelope is also retained, but only the
-      verifiedData object is used to update user records.
+      An audit-table failure is logged but does not prevent valid
+      notification credentials from being stored.
     */
     const {
       error: eventError,
@@ -310,20 +317,43 @@ export async function POST(
           },
         });
 
-    if (eventError) {
-      throw eventError;
+    if (
+      eventError
+    ) {
+      console.error(
+        'Unable to audit Farcaster webhook event:',
+        eventError,
+      );
     }
 
-    switch (eventType) {
+    switch (
+      eventType
+    ) {
       case 'miniapp_added': {
         /*
-          Warpcast commonly includes notificationDetails when
-          adding the Mini App. Other clients may add the app
-          without enabling notifications.
+          A miniapp_added event may or may not include notification
+          credentials.
+
+          When credentials are present, save them. When they are
+          absent, do not erase a previously valid subscription.
         */
-        const update =
-          notificationDetails
-            ? {
+        if (
+          !notificationDetails
+        ) {
+          break;
+        }
+
+        const {
+          error,
+        } =
+          await db
+            .from(
+              'toby_hop_users',
+            )
+            .upsert(
+              {
+                fid,
+
                 notification_url:
                   notificationDetails.url,
 
@@ -336,36 +366,16 @@ export async function POST(
                 updated_at:
                   new Date()
                     .toISOString(),
-              }
-            : {
-                notification_url:
-                  null,
-
-                notification_token:
-                  null,
-
-                notifications_enabled:
-                  false,
-
-                updated_at:
-                  new Date()
-                    .toISOString(),
-              };
-
-        const {
-          error,
-        } =
-          await db
-            .from(
-              'toby_hop_users',
-            )
-            .update(update)
-            .eq(
-              'fid',
-              fid,
+              },
+              {
+                onConflict:
+                  'fid',
+              },
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           throw error;
         }
 
@@ -388,26 +398,32 @@ export async function POST(
             .from(
               'toby_hop_users',
             )
-            .update({
-              notification_url:
-                notificationDetails.url,
+            .upsert(
+              {
+                fid,
 
-              notification_token:
-                notificationDetails.token,
+                notification_url:
+                  notificationDetails.url,
 
-              notifications_enabled:
-                true,
+                notification_token:
+                  notificationDetails.token,
 
-              updated_at:
-                new Date()
-                  .toISOString(),
-            })
-            .eq(
-              'fid',
-              fid,
+                notifications_enabled:
+                  true,
+
+                updated_at:
+                  new Date()
+                    .toISOString(),
+              },
+              {
+                onConflict:
+                  'fid',
+              },
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           throw error;
         }
 
@@ -416,6 +432,10 @@ export async function POST(
 
       case 'miniapp_removed':
       case 'notifications_disabled': {
+        /*
+          Do not create a new user row for a disable/remove event.
+          Only clear credentials when a matching user exists.
+        */
         const {
           error,
         } =
@@ -442,7 +462,9 @@ export async function POST(
               fid,
             );
 
-        if (error) {
+        if (
+          error
+        ) {
           throw error;
         }
 
@@ -450,20 +472,26 @@ export async function POST(
       }
     }
 
+    const notificationsEnabled =
+      eventType ===
+        'notifications_enabled' ||
+      (
+        eventType ===
+          'miniapp_added' &&
+        Boolean(
+          notificationDetails,
+        )
+      );
+
     return NextResponse.json({
       ok: true,
       event:
         eventType,
       fid,
-      notificationsEnabled:
-        eventType ===
-          'notifications_enabled' ||
-        (
-          eventType ===
-            'miniapp_added' &&
-          Boolean(
-            notificationDetails,
-          )
+      notificationsEnabled,
+      notificationCredentialsReceived:
+        Boolean(
+          notificationDetails,
         ),
     });
   } catch (cause) {
@@ -473,8 +501,8 @@ export async function POST(
     );
 
     /*
-      Return a retriable error. Farcaster clients can retry
-      webhook delivery when your server does not return 200.
+      Return a retriable error so the Farcaster client can try
+      delivering the valid webhook again.
     */
     return NextResponse.json(
       {
