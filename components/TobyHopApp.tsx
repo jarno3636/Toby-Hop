@@ -4662,16 +4662,11 @@ export function TobyHopApp() {
       />
 
       <BottomNav
-        view={
-          view
-        }
-        pfpUrl={
-          profilePfp
-        }
-        onChange={
-          setView
-        }
-      />
+  view={view}
+  pfpUrl={profilePfp}
+  fid={currentUserFid}
+  onChange={setView}
+/>
 
       {receipt && (
         <div
