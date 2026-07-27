@@ -278,6 +278,203 @@ function sleep(
   });
 }
 
+function waitForDocumentFocus(
+  timeoutMs = 1_500,
+): Promise<boolean> {
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined'
+  ) {
+    return Promise.resolve(
+      false,
+    );
+  }
+
+  if (
+    document.visibilityState ===
+      'visible' &&
+    document.hasFocus()
+  ) {
+    return Promise.resolve(
+      true,
+    );
+  }
+
+  return new Promise((resolve) => {
+    let settled =
+      false;
+
+    const finish = (
+      focused: boolean,
+    ) => {
+      if (settled) {
+        return;
+      }
+
+      settled =
+        true;
+
+      window.removeEventListener(
+        'focus',
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      );
+
+      window.clearTimeout(
+        timer,
+      );
+
+      resolve(
+        focused,
+      );
+    };
+
+    const handleFocus = () => {
+      finish(
+        document.visibilityState ===
+          'visible' &&
+        document.hasFocus(),
+      );
+    };
+
+    const handleVisibilityChange =
+      () => {
+        if (
+          document.visibilityState ===
+            'visible' &&
+          document.hasFocus()
+        ) {
+          finish(
+            true,
+          );
+        }
+      };
+
+    const timer =
+      window.setTimeout(() => {
+        finish(
+          document.visibilityState ===
+            'visible' &&
+          document.hasFocus(),
+        );
+      }, timeoutMs);
+
+    window.addEventListener(
+      'focus',
+      handleFocus,
+    );
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    );
+  });
+}
+
+async function safeCopyToClipboard(
+  text: string,
+): Promise<boolean> {
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined' ||
+    typeof navigator === 'undefined'
+  ) {
+    return false;
+  }
+
+  const focused =
+    (
+      document.visibilityState ===
+        'visible' &&
+      document.hasFocus()
+    ) ||
+    await waitForDocumentFocus();
+
+  if (!focused) {
+    return false;
+  }
+
+  try {
+    if (
+      navigator.clipboard
+        ?.writeText
+    ) {
+      await navigator.clipboard
+        .writeText(
+          text,
+        );
+
+      return true;
+    }
+  } catch (cause) {
+    console.warn(
+      'Clipboard API unavailable:',
+      cause,
+    );
+  }
+
+  /*
+    Compatibility fallback for older wallet webviews that do not
+    expose navigator.clipboard. This remains best-effort only.
+  */
+  try {
+    const textarea =
+      document.createElement(
+        'textarea',
+      );
+
+    textarea.value =
+      text;
+
+    textarea.setAttribute(
+      'readonly',
+      '',
+    );
+
+    textarea.style.position =
+      'fixed';
+
+    textarea.style.left =
+      '-9999px';
+
+    textarea.style.top =
+      '0';
+
+    textarea.style.opacity =
+      '0';
+
+    textarea.style.pointerEvents =
+      'none';
+
+    document.body.appendChild(
+      textarea,
+    );
+
+    textarea.focus();
+    textarea.select();
+
+    const copied =
+      document.execCommand(
+        'copy',
+      );
+
+    textarea.remove();
+
+    return copied;
+  } catch (cause) {
+    console.warn(
+      'Clipboard fallback unavailable:',
+      cause,
+    );
+
+    return false;
+  }
+}
+
 function createAudioContext():
 AudioContext | null {
   try {
@@ -3514,6 +3711,9 @@ export function TobyHopApp() {
         .NEXT_PUBLIC_APP_URL ||
       window.location.origin;
 
+    const shareText =
+      `${receipt.castText}\n\n${appUrl}`;
+
     if (
       canCast
     ) {
@@ -3536,15 +3736,24 @@ export function TobyHopApp() {
         );
 
         return;
-      } catch {
-        // Use native sharing.
+      } catch (cause) {
+        console.warn(
+          'Farcaster cast composer was unavailable:',
+          cause,
+        );
+
+        // Continue to native sharing or clipboard fallback.
       }
     }
 
-    try {
-      if (
-        navigator.share
-      ) {
+    if (
+      typeof navigator.share ===
+        'function' &&
+      document.visibilityState ===
+        'visible' &&
+      document.hasFocus()
+    ) {
+      try {
         await navigator.share({
           title:
             'Toby Hop',
@@ -3557,13 +3766,29 @@ export function TobyHopApp() {
         });
 
         return;
-      }
+      } catch (cause) {
+        if (
+          cause instanceof
+            DOMException &&
+          cause.name ===
+            'AbortError'
+        ) {
+          return;
+        }
 
-      await navigator.clipboard
-        .writeText(
-          `${receipt.castText}\n\n${appUrl}`,
+        console.warn(
+          'Native share was unavailable:',
+          cause,
         );
+      }
+    }
 
+    const copied =
+      await safeCopyToClipboard(
+        shareText,
+      );
+
+    if (copied) {
       setNotice({
         kind:
           'success',
@@ -3571,20 +3796,21 @@ export function TobyHopApp() {
         message:
           'Your hop message was copied.',
       });
-    } catch (cause) {
-      if (
-        cause instanceof
-          DOMException &&
-        cause.name ===
-          'AbortError'
-      ) {
-        return;
-      }
 
-      setErrorNotice(
-        cause,
-      );
+      return;
     }
+
+    /*
+      Sharing is optional and must never make a successful hop look
+      like it failed when an Android wallet webview is still unfocused.
+    */
+    setNotice({
+      kind:
+        'success',
+
+      message:
+        'Your hop is recorded. Try Share again after the wallet window fully closes.',
+    });
   }
 
   const hopStatus:
