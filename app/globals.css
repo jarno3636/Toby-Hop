@@ -1,3 +1,8 @@
+@import './styles/living-pond.css';
+@import './styles/frog-personality.css';
+@import './styles/pond-polish.css';
+@import './styles/navigation-polish.css';
+
 :root {
   color-scheme: dark;
 
