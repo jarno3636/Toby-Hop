@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { authorizeTobyHopAdminApi } from "@/lib/admin/toby-hop-admin";
+import { authorizeAdminRequest } from "@/lib/admin/authorize-admin-request";
 import { sendTobyHopNotification } from "@/lib/notifications/send-notification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST() {
-  const authorization = await authorizeTobyHopAdminApi();
+export async function POST(request: Request) {
+  const authorization =
+    await authorizeAdminRequest(request);
 
   if (!authorization.authorized) {
     return authorization.response;
@@ -15,25 +16,32 @@ export async function POST() {
   const { fid } = authorization.admin;
 
   try {
-    const timestamp = Date.now();
+    const result =
+      await sendTobyHopNotification({
+        fid,
+        type: "test",
+        notificationId:
+          `admin-test-${fid}-${Date.now()}`,
+        title: "Toby is waiting",
+        body:
+          "Your pond is ready. Tap here to return to Toby Hop.",
+        targetUrl: "/",
+      });
 
-    const result = await sendTobyHopNotification({
-      fid,
-      type: "test",
-      notificationId: `admin-test-${timestamp}`,
-      title: "🐸 Toby is waiting",
-      body: "Your pond is ready. Tap here to hop back into Toby Hop.",
-      targetUrl: "/",
-    });
-
-    return NextResponse.json(result, {
-      status: result.success ? 200 : 400,
-      headers: {
-        "Cache-Control": "no-store",
+    return NextResponse.json(
+      result,
+      {
+        status: result.success ? 200 : 400,
+        headers: {
+          "Cache-Control": "no-store",
+        },
       },
-    });
+    );
   } catch (error) {
-    console.error("Admin test notification failed", error);
+    console.error(
+      "Admin test notification failed.",
+      error,
+    );
 
     return NextResponse.json(
       {
