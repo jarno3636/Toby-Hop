@@ -1,6 +1,6 @@
-import 'server-only';
+import "server-only";
 
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type JsonPrimitive = string | number | boolean | null;
 
@@ -71,9 +71,11 @@ let settingsCache:
     }
   | undefined;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
   return (
-    typeof value === 'object' &&
+    typeof value === "object" &&
     value !== null &&
     !Array.isArray(value)
   );
@@ -83,7 +85,9 @@ function parseBoolean(
   value: unknown,
   fallback: boolean,
 ): boolean {
-  return typeof value === 'boolean' ? value : fallback;
+  return typeof value === "boolean"
+    ? value
+    : fallback;
 }
 
 function parseNumber(
@@ -96,12 +100,15 @@ function parseNumber(
 ): number {
   let parsed: number | null = null;
 
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
     parsed = value;
   }
 
   if (
-    typeof value === 'string' &&
+    typeof value === "string" &&
     value.trim().length > 0
   ) {
     const converted = Number(value);
@@ -184,7 +191,7 @@ function normalizeSettings(
 
   return {
     hop_cost: parseNumber(
-      values.get('hop_cost'),
+      values.get("hop_cost"),
       DEFAULT_TOBY_HOP_SETTINGS.hop_cost,
       {
         min: 0,
@@ -192,27 +199,27 @@ function normalizeSettings(
     ),
 
     golden_toby: parseChanceSetting(
-      values.get('golden_toby'),
+      values.get("golden_toby"),
       DEFAULT_TOBY_HOP_SETTINGS.golden_toby,
     ),
 
     rainbow_pond: parseChanceSetting(
-      values.get('rainbow_pond'),
+      values.get("rainbow_pond"),
       DEFAULT_TOBY_HOP_SETTINGS.rainbow_pond,
     ),
 
     weather: parseToggleSetting(
-      values.get('weather'),
+      values.get("weather"),
       DEFAULT_TOBY_HOP_SETTINGS.weather,
     ),
 
     leaderboard: parseToggleSetting(
-      values.get('leaderboard'),
+      values.get("leaderboard"),
       DEFAULT_TOBY_HOP_SETTINGS.leaderboard,
     ),
 
     maintenance: parseToggleSetting(
-      values.get('maintenance'),
+      values.get("maintenance"),
       DEFAULT_TOBY_HOP_SETTINGS.maintenance,
     ),
   };
@@ -233,31 +240,49 @@ export async function getTobyHopSettings(
     return settingsCache.value;
   }
 
-  const { data, error } = await supabaseAdmin
-    .from('toby_hop_settings')
-    .select('key, value, description, updated_at');
+  try {
+    const admin = supabaseAdmin();
 
-  if (error) {
+    const { data, error } = await admin
+      .from("toby_hop_settings")
+      .select(
+        "key, value, description, updated_at",
+      );
+
+    if (error) {
+      console.error(
+        "[toby-hop-settings] Failed to load settings:",
+        error,
+      );
+
+      return (
+        settingsCache?.value ??
+        DEFAULT_TOBY_HOP_SETTINGS
+      );
+    }
+
+    const settings = normalizeSettings(
+      (data ?? []) as TobyHopSettingRow[],
+    );
+
+    settingsCache = {
+      value: settings,
+      expiresAt:
+        now + SETTINGS_CACHE_DURATION_MS,
+    };
+
+    return settings;
+  } catch (error) {
     console.error(
-      '[toby-hop-settings] Failed to load settings:',
+      "[toby-hop-settings] Unexpected settings error:",
       error,
     );
 
-    return settingsCache?.value ??
-      DEFAULT_TOBY_HOP_SETTINGS;
+    return (
+      settingsCache?.value ??
+      DEFAULT_TOBY_HOP_SETTINGS
+    );
   }
-
-  const settings = normalizeSettings(
-    (data ?? []) as TobyHopSettingRow[],
-  );
-
-  settingsCache = {
-    value: settings,
-    expiresAt:
-      now + SETTINGS_CACHE_DURATION_MS,
-  };
-
-  return settings;
 }
 
 export async function getTobyHopSetting<
@@ -268,7 +293,8 @@ export async function getTobyHopSetting<
     bypassCache?: boolean;
   },
 ): Promise<TobyHopSettings[Key]> {
-  const settings = await getTobyHopSettings(options);
+  const settings =
+    await getTobyHopSettings(options);
 
   return settings[key];
 }
