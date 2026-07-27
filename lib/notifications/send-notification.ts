@@ -130,13 +130,27 @@ function isProviderResponse(
     return false;
   }
 
-  const response =
-    value as Partial<FarcasterNotificationResponse>;
+  const response = value as {
+    result?: {
+      successfulTokens?: unknown;
+      invalidTokens?: unknown;
+      rateLimitedTokens?: unknown;
+      failedTokens?: unknown;
+    };
+  };
+
+  if (!response.result) {
+    return false;
+  }
 
   return (
-    Array.isArray(response.successfulTokens) &&
-    Array.isArray(response.invalidTokens) &&
-    Array.isArray(response.rateLimitedTokens)
+    Array.isArray(response.result.successfulTokens) &&
+    Array.isArray(response.result.invalidTokens) &&
+    Array.isArray(response.result.rateLimitedTokens) &&
+    (
+      response.result.failedTokens === undefined ||
+      Array.isArray(response.result.failedTokens)
+    )
   );
 }
 
@@ -441,7 +455,7 @@ console.log("=======================================");
     }
 
     if (
-      providerResponse.invalidTokens.includes(
+      providerResponse.result.invalidTokens.includes(
         notificationToken,
       )
     ) {
@@ -471,7 +485,7 @@ console.log("=======================================");
     }
 
     if (
-      providerResponse.rateLimitedTokens.includes(
+      providerResponse.result.rateLimitedTokens.includes(
         notificationToken,
       )
     ) {
@@ -496,7 +510,7 @@ console.log("=======================================");
     }
 
     if (
-      !providerResponse.successfulTokens.includes(
+      !providerResponse.result.successfulTokens.includes(
         notificationToken,
       )
     ) {
