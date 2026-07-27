@@ -1,10 +1,17 @@
-import { requireTobyHopAdmin } from "@/lib/admin/toby-hop-admin";
-import { AdminNotificationsClient } from "./AdminNotificationsClient";
+import type { Metadata } from "next";
+import { AdminDashboard } from "./AdminDashboard";
+
+export const metadata: Metadata = {
+  title: "Toby Hop",
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+  },
+};
 
 export const dynamic = "force-dynamic";
 
-export default async function TobyHopAdminPage() {
-  const admin = await requireTobyHopAdmin();
-
-  return <AdminNotificationsClient adminFid={admin.fid} />;
+export default function AdminPage() {
+  return <AdminDashboard />;
 }
