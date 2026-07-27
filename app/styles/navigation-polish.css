@@ -1,0 +1,8 @@
+.nav:has(button:nth-child(4)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.nav button { position: relative; isolation: isolate; }
+.nav button::after { content:''; position:absolute; z-index:-1; right:16%; bottom:5px; left:16%; height:2px; border-radius:99px; background:var(--cyan); opacity:0; transform:scaleX(.25); transition:opacity 180ms ease, transform 180ms ease; box-shadow:0 0 9px rgba(135,247,223,.55); }
+.nav button.active::after { opacity:.8; transform:scaleX(1); }
+.nav button.active > span:first-child, .nav button.active img { transform:translateY(-1px) scale(1.06); }
+.nav button > span:first-child, .nav button img { transition:transform 180ms ease, filter 180ms ease; }
+.nav button.active > span:first-child { filter:drop-shadow(0 0 7px rgba(135,247,223,.45)); }
+@media (max-width:390px) { .nav:has(button:nth-child(4)) button { gap:3px; padding-inline:4px; font-size:.69rem; } }

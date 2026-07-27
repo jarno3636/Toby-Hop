@@ -1,0 +1,13 @@
+/* Quiet motion remains subtle; wildlife and discoveries are event-driven. */
+.reed { transition: filter 600ms ease; }
+.r1 { animation: calmReedOne 8.7s ease-in-out infinite; }
+.r2 { animation: calmReedTwo 10.3s ease-in-out infinite; }
+.r3 { animation: calmReedThree 9.4s ease-in-out infinite; }
+.l1 { animation: calmLilyOne 7.8s ease-in-out infinite; }
+.l2 { animation: calmLilyTwo 9.1s ease-in-out infinite; }
+
+@keyframes calmReedOne { 0%,100%{translate:0 0;rotate:0deg} 50%{translate:1px 0;rotate:1.5deg} }
+@keyframes calmReedTwo { 0%,100%{translate:0 0;rotate:0deg} 50%{translate:-1px 0;rotate:-1.2deg} }
+@keyframes calmReedThree { 0%,100%{translate:0 0;rotate:0deg} 50%{translate:1px 0;rotate:1deg} }
+@keyframes calmLilyOne { 0%,100%{translate:0 0} 50%{translate:0 -2px} }
+@keyframes calmLilyTwo { 0%,100%{translate:0 0} 50%{translate:1px -2px} }

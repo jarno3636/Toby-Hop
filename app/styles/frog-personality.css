@@ -1,0 +1,24 @@
+/* Toby's expression cues are applied briefly by React, never looped. */
+.frog .eye::before {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  inset: -2px;
+  border-radius: 50%;
+  background: #bffcf1;
+  transform: scaleY(0);
+  transform-origin: center top;
+}
+
+.frog-blink .eye::before { animation: frogBlinkOnce .34s ease-in-out 1 both; }
+.frog-double-blink .eye::before { animation: frogBlinkTwice .8s ease-in-out 1 both; }
+.frog-glance-left .eye::after { transform: translateX(-7px); transition: transform .24s ease; }
+.frog-glance-right .eye::after { transform: translateX(7px); transition: transform .24s ease; }
+.frog-look-up .eye::after { transform: translateY(-6px); transition: transform .24s ease; }
+.frog-curious { transform: rotate(2deg) translateY(-2px); }
+.frog-sleepy .eye::before { transform: scaleY(.62); }
+.frog-smile .mouth { height: 18px; border-bottom-width: 4px; transform: translateY(-2px) scaleX(1.18); }
+.frog-smile .cheek { opacity: .9; transform: scale(1.15); }
+
+@keyframes frogBlinkOnce { 0%,100%{transform:scaleY(0)} 48%,58%{transform:scaleY(1)} }
+@keyframes frogBlinkTwice { 0%,18%,38%,58%,100%{transform:scaleY(0)} 10%,29%,49%{transform:scaleY(1)} }

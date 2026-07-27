@@ -1,0 +1,112 @@
+/* Event-driven ambient layer. Elements mount only while an event is active. */
+.living-pond-layer {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.living-butterfly {
+  position: absolute;
+  top: 35%;
+  left: -14%;
+  color: #ffe6aa;
+  font-size: 19px;
+  text-shadow: 0 0 10px rgba(255, 229, 158, 0.65);
+  transform: translate3d(0, 0, 0) rotate(-12deg);
+  animation: livingButterflyCross 7.2s cubic-bezier(.35,.05,.65,.95) 1 both;
+}
+
+.living-butterfly::before,
+.living-butterfly::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  width: 10px;
+  height: 13px;
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 70% 20% 65% 30%;
+  background: rgba(255, 220, 158, .38);
+  animation: livingWingBeat .19s ease-in-out 18 alternate;
+}
+
+.living-butterfly::before { right: 7px; transform-origin: right center; }
+.living-butterfly::after { left: 7px; transform: scaleX(-1); transform-origin: left center; }
+.living-butterfly-golden { color: #fff0a6; filter: drop-shadow(0 0 8px #ffd85f); }
+
+.living-dragonfly {
+  position: absolute;
+  top: 41%;
+  left: -16%;
+  width: 40px;
+  height: 22px;
+  animation: livingDragonflyVisit 6.6s ease-in-out 1 both;
+}
+.living-dragonfly-body {
+  position: absolute; left: 18px; top: 4px; width: 4px; height: 21px;
+  border-radius: 999px; background: linear-gradient(#9ffff0, #197f83);
+  box-shadow: 0 0 6px rgba(148,255,239,.5);
+}
+.living-wing { position: absolute; top: 1px; width: 19px; height: 8px; border: 1px solid rgba(205,255,248,.55); border-radius: 80% 20%; background: rgba(193,255,247,.13); animation: livingDragonWing .11s ease-in-out 28 alternate; }
+.living-wing-left { left: 1px; transform-origin: right center; }
+.living-wing-right { right: 1px; transform: scaleX(-1); transform-origin: left center; }
+
+.living-fish { position: absolute; z-index: 2; left: 29%; bottom: 96px; color: #8ff4e0; font-size: 28px; filter: drop-shadow(0 4px 4px rgba(0,0,0,.25)); animation: livingFishJump 2.8s cubic-bezier(.2,.7,.25,1) 1 both; }
+.living-fish-ripple, .living-leaf-ripple { position: absolute; left: 31%; bottom: 98px; width: 72px; height: 18px; border: 2px solid rgba(186,255,242,.45); border-radius: 50%; animation: livingEventRipple 1.7s ease-out .95s 1 both; }
+.living-splash { position: absolute; left: 35%; bottom: 112px; width: 5px; height: 10px; border-radius: 50%; background: rgba(201,255,247,.7); opacity: 0; }
+.living-splash-one { animation: livingSplashOne .8s ease-out 1.05s 1 both; }
+.living-splash-two { animation: livingSplashTwo .8s ease-out 1.05s 1 both; }
+
+.living-turtle { position: absolute; left: -22%; bottom: 73px; width: 68px; height: 34px; opacity: .72; animation: livingTurtleSwim 12s linear 1 both; }
+.living-turtle-shell { position: absolute; left: 13px; top: 5px; width: 42px; height: 27px; border-radius: 52% 52% 42% 42%; background: radial-gradient(circle at 35% 30%, #6da06b, #315f4d 72%); box-shadow: inset 0 0 0 2px rgba(220,255,224,.12); }
+.living-turtle-head { position: absolute; right: 2px; top: 12px; width: 17px; height: 14px; border-radius: 50%; background: #567f5f; }
+.living-turtle-foot { position: absolute; width: 15px; height: 7px; border-radius: 70%; background: #456e57; animation: livingTurtlePaddle .75s ease-in-out 12 alternate; }
+.foot-one { left: 8px; top: 23px; } .foot-two { left: 43px; top: 24px; }
+
+.living-leaf { position: absolute; top: 30%; left: -10%; color: #95bd68; font-size: 17px; filter: drop-shadow(0 3px 4px rgba(0,0,0,.2)); animation: livingLeafDrift 9s ease-in-out 1 both; }
+.living-leaf-ripple { left: 69%; bottom: 84px; animation-delay: 6.7s; }
+
+.living-owl { position: absolute; top: 23%; left: -22%; width: 76px; height: 27px; opacity: .72; filter: drop-shadow(0 3px 3px rgba(0,0,0,.45)); animation: livingOwlCross 7.5s ease-in-out 1 both; }
+.living-owl-body { position: absolute; left: 29px; top: 6px; width: 18px; height: 18px; border-radius: 50% 50% 45% 45%; background: #0b2028; }
+.living-owl-wing { position: absolute; top: 5px; width: 35px; height: 13px; border-radius: 70% 15%; background: #0b2028; animation: livingOwlWing .65s ease-in-out 7 alternate; }
+.living-owl-wing.wing-left { left: 0; transform-origin: right center; }
+.living-owl-wing.wing-right { right: 0; transform: scaleX(-1); transform-origin: left center; }
+
+.living-sparkles span { --spark-index: 0; position: absolute; left: calc(13% + (var(--spark-index) * 12%)); bottom: calc(76px + ((var(--spark-index) % 3) * 22px)); width: 4px; height: 4px; border-radius: 50%; background: #d8fff7; box-shadow: 0 0 9px rgba(216,255,247,.9); opacity: 0; animation: livingSparkle 2.5s ease-in-out calc(var(--spark-index) * .22s) 1 both; }
+
+.living-pond-breath { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 72%, rgba(124,255,229,.16), transparent 48%); opacity: 0; animation: livingPondBreath 8.5s ease-in-out 1 both; }
+.living-event-pond-breath ~ .reed { animation: livingReedAnswer 8.5s ease-in-out 1 both; }
+
+.living-tiny-toby { position: absolute; right: 25px; bottom: 101px; width: 42px; height: 28px; border-radius: 50% 50% 44% 44%; border: 2px solid rgba(4,52,55,.4); background: linear-gradient(135deg,#c9fff5,#4eb8c4); transform: translateY(38px); animation: livingTinyToby 6.5s ease-in-out 1 both; }
+.living-tiny-toby::before, .living-tiny-toby::after { content:''; position:absolute; top:-7px; width:15px; height:15px; border-radius:50%; background:#d8fff8; border:2px solid rgba(4,52,55,.35); }
+.living-tiny-toby::before { left:4px; } .living-tiny-toby::after { right:4px; }
+.tiny-eye { position:absolute; z-index:2; top:-2px; width:4px; height:6px; border-radius:50%; background:#09282c; }
+.tiny-eye-left { left:10px; } .tiny-eye-right { right:10px; }
+
+.living-moon-thread { position: absolute; top: 151px; right: 66px; width: 2px; height: 0; background: linear-gradient(rgba(255,244,192,.55), transparent); box-shadow: 0 0 11px rgba(255,240,176,.32); animation: livingMoonThread 9s ease-in-out 1 both; }
+.living-lotus-whisper { position: absolute; right: 20%; bottom: 132px; color: #ffd4ec; font-size: 18px; text-shadow: 0 0 12px rgba(255,174,221,.8); opacity: 0; animation: livingLotusWhisper 8s ease-in-out 1 both; }
+
+@keyframes livingButterflyCross { 0%{transform:translate3d(0,25px,0) rotate(-12deg);opacity:0} 8%{opacity:1} 38%{transform:translate3d(42vw,-26px,0) rotate(8deg)} 66%{transform:translate3d(70vw,18px,0) rotate(-7deg)} 92%{opacity:1} 100%{transform:translate3d(130vw,-15px,0) rotate(9deg);opacity:0} }
+@keyframes livingWingBeat { to{transform:scaleX(.22) rotate(12deg)} }
+@keyframes livingDragonflyVisit { 0%{transform:translate3d(0,20px,0);opacity:0} 12%{opacity:1} 44%{transform:translate3d(54vw,-18px,0)} 58%{transform:translate3d(63vw,-8px,0)} 72%{transform:translate3d(63vw,-8px,0)} 100%{transform:translate3d(130vw,-42px,0);opacity:0} }
+@keyframes livingDragonWing { to{transform:scaleY(.2) rotate(7deg)} }
+@keyframes livingFishJump { 0%,100%{opacity:0;transform:translate3d(0,12px,0) rotate(-20deg)} 14%{opacity:1} 48%{opacity:1;transform:translate3d(35px,-82px,0) rotate(75deg)} 78%{opacity:1;transform:translate3d(71px,8px,0) rotate(155deg)} 84%{opacity:0} }
+@keyframes livingEventRipple { from{opacity:.8;transform:translateX(-50%) scale(.25)} to{opacity:0;transform:translateX(-50%) scale(1.7)} }
+@keyframes livingSplashOne { 0%{opacity:0;transform:translate(0,0)} 25%{opacity:1} 100%{opacity:0;transform:translate(-18px,-25px)} }
+@keyframes livingSplashTwo { 0%{opacity:0;transform:translate(0,0)} 25%{opacity:1} 100%{opacity:0;transform:translate(20px,-21px)} }
+@keyframes livingTurtleSwim { 0%{transform:translate3d(0,0,0);opacity:0} 10%{opacity:.72} 90%{opacity:.72} 100%{transform:translate3d(145vw,-18px,0);opacity:0} }
+@keyframes livingTurtlePaddle { to{transform:rotate(24deg) translateX(4px)} }
+@keyframes livingLeafDrift { 0%{transform:translate3d(0,0,0) rotate(0);opacity:0} 10%{opacity:1} 74%{transform:translate3d(83vw,230px,0) rotate(420deg);opacity:1} 100%{transform:translate3d(88vw,280px,0) rotate(500deg);opacity:0} }
+@keyframes livingOwlCross { 0%{transform:translate3d(0,18px,0);opacity:0} 14%{opacity:.72} 86%{opacity:.72} 100%{transform:translate3d(145vw,-34px,0);opacity:0} }
+@keyframes livingOwlWing { to{transform:rotate(18deg) scaleY(.5)} }
+@keyframes livingSparkle { 0%,100%{opacity:0;transform:scale(.25)} 35%{opacity:1;transform:scale(1.6)} 60%{opacity:.45;transform:scale(.8)} }
+@keyframes livingPondBreath { 0%,100%{opacity:0;transform:scale(.98)} 45%{opacity:1;transform:scale(1.025)} 65%{opacity:.65} }
+@keyframes livingReedAnswer { 0%,100%{filter:none} 50%{filter:brightness(1.08)} }
+@keyframes livingTinyToby { 0%,100%{transform:translateY(38px);opacity:0} 18%{transform:translateY(8px);opacity:1} 66%{transform:translateY(8px);opacity:1} 78%{transform:translateY(4px) rotate(-3deg)} }
+@keyframes livingMoonThread { 0%,100%{height:0;opacity:0} 38%,65%{height:172px;opacity:.55} }
+@keyframes livingLotusWhisper { 0%,100%{opacity:0;transform:translateY(8px) scale(.5)} 38%{opacity:1;transform:translateY(-10px) scale(1.4)} 65%{opacity:.5;transform:translateY(-22px) scale(.8)} }
+
+@media (prefers-reduced-motion: reduce) {
+  .living-pond-layer { display: none; }
+}
