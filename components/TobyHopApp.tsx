@@ -54,6 +54,7 @@ import {
   getTodaysPond,
   type PondParticle,
 } from '@/lib/todays-pond';
+import type { FrogCue } from '@/lib/living-pond';
 import type {
   HopReceipt,
   HopUser,
@@ -1086,6 +1087,14 @@ export function TobyHopApp() {
     useState<HopState>(
       'idle',
     );
+
+  const [frogCue, setFrogCue] =
+    useState<FrogCue>('idle');
+
+  const handleFrogCueChange =
+    useCallback((cue: FrogCue) => {
+      setFrogCue(cue);
+    }, []);
 
   const [
     receipt,
@@ -4409,6 +4418,22 @@ export function TobyHopApp() {
               )}
             </div>
 
+            <LivingPondLayer
+              themeId={todaysPond.id}
+              moonPhase={todaysPond.moonPhase}
+              raining={specialPond.rain}
+              snowing={specialPond.snow}
+              fireflies={specialPond.fireflies}
+              autumn={specialPond.autumn}
+              lotus={specialPond.lotus}
+              golden={specialPond.golden}
+              busy={busy}
+              todayHopped={user.today_hopped}
+              streak={user.current_streak}
+              hour={new Date().getHours()}
+              onFrogCueChange={handleFrogCueChange}
+            />
+
             <div className="reed r1" />
             <div className="reed r2" />
             <div className="reed r3" />
@@ -4448,6 +4473,10 @@ export function TobyHopApp() {
 
                   user.today_hopped
                     ? 'frog-resting'
+                    : '',
+
+                  !busy
+                    ? `frog-${frogCue}`
                     : '',
                 ]
                   .filter(Boolean)
