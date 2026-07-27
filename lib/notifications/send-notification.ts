@@ -381,6 +381,14 @@ export async function sendTobyHopNotification(
     const latencyMs = Date.now() - startedAt;
     const providerResponse =
       await safeReadResponse(response);
+    console.log("========== FARCASTER RESPONSE ==========");
+console.log("HTTP:", response.status);
+console.log("URL:", notificationUrl);
+console.log(
+  "BODY:",
+  JSON.stringify(providerResponse, null, 2),
+);
+console.log("=======================================");
 
     const loggedProviderResponse = {
       httpStatus: response.status,
