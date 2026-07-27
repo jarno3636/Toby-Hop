@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import { sdk } from "@farcaster/miniapp-sdk";
 
 type AdminStatus = {
@@ -48,7 +52,8 @@ type AdminStatus = {
 };
 
 type FailedResponse = {
-  success: false;
+  success?: false;
+  ok?: false;
   error?: string;
   status?: string;
 };
@@ -60,6 +65,34 @@ type TestResult = {
   httpStatus?: number;
   latencyMs?: number;
   error?: string;
+};
+
+type ToggleSetting = {
+  enabled: boolean;
+};
+
+type ChanceSetting = {
+  enabled: boolean;
+  chance: number;
+};
+
+type TobyHopSettings = {
+  hop_cost: number;
+
+  golden_toby: ChanceSetting;
+
+  rainbow_pond: ChanceSetting;
+
+  weather: ToggleSetting;
+
+  leaderboard: ToggleSetting;
+
+  maintenance: ToggleSetting;
+};
+
+type SettingsResponse = {
+  ok: true;
+  settings: TobyHopSettings;
 };
 
 function formatDate(
@@ -76,6 +109,41 @@ function formatDate(
   }
 
   return date.toLocaleString();
+}
+
+function formatPercent(
+  decimal: number | null | undefined,
+): string {
+  if (
+    typeof decimal !== "number" ||
+    !Number.isFinite(decimal)
+  ) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    minimumFractionDigits:
+      decimal > 0 && decimal < 0.001
+        ? 3
+        : decimal < 0.01
+          ? 2
+          : 1,
+    maximumFractionDigits: 4,
+  }).format(decimal);
+}
+
+function formatHopCost(
+  value: number | null | undefined,
+): string {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value)
+  ) {
+    return "—";
+  }
+
+  return `${value} USDC`;
 }
 
 function statusTone(
@@ -110,6 +178,9 @@ export function AdminDashboard() {
   const [status, setStatus] =
     useState<AdminStatus | null>(null);
 
+  const [settings, setSettings] =
+    useState<TobyHopSettings | null>(null);
+
   const [checking, setChecking] =
     useState(true);
 
@@ -119,14 +190,23 @@ export function AdminDashboard() {
   const [sending, setSending] =
     useState(false);
 
+  const [testingSettings, setTestingSettings] =
+    useState(false);
+
   const [denied, setDenied] =
     useState(false);
 
   const [error, setError] =
     useState<string | null>(null);
 
+  const [settingsError, setSettingsError] =
+    useState<string | null>(null);
+
   const [testResult, setTestResult] =
     useState<TestResult | null>(null);
+
+  const [settingsTestedAt, setSettingsTestedAt] =
+    useState<Date | null>(null);
 
   const loadStatus = useCallback(
     async (initial = false) => {
@@ -164,7 +244,8 @@ export function AdminDashboard() {
 
         if (
           !response.ok ||
-          !payload.success
+          !("success" in payload) ||
+          payload.success !== true
         ) {
           throw new Error(
             "error" in payload &&
@@ -195,9 +276,83 @@ export function AdminDashboard() {
     [],
   );
 
+  const loadSettings = useCallback(
+    async () => {
+      setTestingSettings(true);
+      setSettingsError(null);
+
+      try {
+        const response =
+          await sdk.quickAuth.fetch(
+            "/api/admin/toby-hop/settings/test",
+            {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+              },
+              cache: "no-store",
+            },
+          );
+
+        if (response.status === 404) {
+          setDenied(true);
+          setSettings(null);
+          return;
+        }
+
+        const payload =
+          await readJson<
+            SettingsResponse | FailedResponse
+          >(response);
+
+        if (
+          !response.ok ||
+          !("ok" in payload) ||
+          payload.ok !== true
+        ) {
+          throw new Error(
+            "error" in payload &&
+              payload.error
+              ? payload.error
+              : "Failed to load Toby Hop settings.",
+          );
+        }
+
+        setDenied(false);
+        setSettings(payload.settings);
+        setSettingsTestedAt(new Date());
+      } catch (cause) {
+        console.error(
+          "Toby Hop settings request failed.",
+          cause,
+        );
+
+        setSettingsError(
+          cause instanceof Error
+            ? cause.message
+            : "Failed to load Toby Hop settings.",
+        );
+      } finally {
+        setTestingSettings(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     void loadStatus(true);
   }, [loadStatus]);
+
+  async function refreshEverything() {
+    setRefreshing(true);
+
+    await Promise.all([
+      loadStatus(false),
+      loadSettings(),
+    ]);
+
+    setRefreshing(false);
+  }
 
   async function sendTestNotification() {
     setSending(true);
@@ -257,6 +412,7 @@ export function AdminDashboard() {
     return (
       <main className="gateScreen">
         <div className="gateMark">◉</div>
+
         <p>Checking pond credentials…</p>
 
         <style jsx>{`
@@ -301,6 +457,7 @@ export function AdminDashboard() {
     return (
       <main className="notFound">
         <h1>404</h1>
+
         <p>Page not found.</p>
 
         <style jsx>{`
@@ -335,6 +492,11 @@ export function AdminDashboard() {
       notificationUser.hasNotificationToken,
   );
 
+  const settingsHealthy = Boolean(settings);
+
+  const maintenanceEnabled =
+    settings?.maintenance.enabled ?? false;
+
   return (
     <main className="adminShell">
       <section className="hero">
@@ -346,8 +508,9 @@ export function AdminDashboard() {
 
         <p className="heroCopy">
           Notification credentials, webhook health,
-          delivery results, and manual testing for
-          FID {status?.adminFid}.
+          delivery results, database settings, and
+          manual testing for FID{" "}
+          {status?.adminFid}.
         </p>
       </section>
 
@@ -358,6 +521,7 @@ export function AdminDashboard() {
           disabled={
             sending ||
             refreshing ||
+            testingSettings ||
             !credentialsReady
           }
           onClick={() =>
@@ -374,21 +538,48 @@ export function AdminDashboard() {
           className="secondaryButton"
           disabled={
             refreshing ||
-            sending
+            sending ||
+            testingSettings
           }
           onClick={() =>
-            void loadStatus(false)
+            void loadSettings()
+          }
+        >
+          {testingSettings
+            ? "Testing Settings…"
+            : "Test Settings"}
+        </button>
+
+        <button
+          type="button"
+          className="secondaryButton"
+          disabled={
+            refreshing ||
+            sending ||
+            testingSettings
+          }
+          onClick={() =>
+            void refreshEverything()
           }
         >
           {refreshing
             ? "Refreshing…"
-            : "Refresh Status"}
+            : "Refresh Everything"}
         </button>
       </section>
 
       {error ? (
         <div className="errorBox">
           {error}
+        </div>
+      ) : null}
+
+      {settingsError ? (
+        <div className="errorBox">
+          <strong>
+            Settings test failed.
+          </strong>{" "}
+          {settingsError}
         </div>
       ) : null}
 
@@ -409,6 +600,21 @@ export function AdminDashboard() {
         </div>
       ) : null}
 
+      {settingsHealthy ? (
+        <div className="successBox">
+          <strong>
+            Settings loaded successfully.
+          </strong>{" "}
+
+          The app is reading configuration from
+          Supabase.
+
+          {settingsTestedAt
+            ? ` Tested ${settingsTestedAt.toLocaleString()}.`
+            : ""}
+        </div>
+      ) : null}
+
       {!credentialsReady ? (
         <div className="warningBox">
           Test sending is disabled until your
@@ -418,13 +624,141 @@ export function AdminDashboard() {
         </div>
       ) : null}
 
+      {maintenanceEnabled ? (
+        <div className="criticalBox">
+          <strong>
+            Maintenance mode is enabled.
+          </strong>{" "}
+
+          This does not affect gameplay until the
+          setting is wired into your app routes.
+        </div>
+      ) : null}
+
       <section className="grid">
+        <article className="card settingsCard">
+          <div className="cardHeader">
+            <div>
+              <p className="eyebrow">
+                DATABASE SETTINGS
+              </p>
+
+              <h2>Toby Hop configuration</h2>
+            </div>
+
+            <span
+              className={statusTone(
+                settingsHealthy,
+              )}
+            >
+              {testingSettings
+                ? "Testing"
+                : settingsHealthy
+                  ? "Connected"
+                  : "Not tested"}
+            </span>
+          </div>
+
+          <dl>
+            <div>
+              <dt>Hop cost</dt>
+
+              <dd>
+                {formatHopCost(
+                  settings?.hop_cost,
+                )}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Golden Toby</dt>
+
+              <dd>
+                {settings
+                  ? settings.golden_toby
+                      .enabled
+                    ? `Enabled · ${formatPercent(
+                        settings.golden_toby
+                          .chance,
+                      )}`
+                    : "Disabled"
+                  : "Not loaded"}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Rainbow pond</dt>
+
+              <dd>
+                {settings
+                  ? settings.rainbow_pond
+                      .enabled
+                    ? `Enabled · ${formatPercent(
+                        settings.rainbow_pond
+                          .chance,
+                      )}`
+                    : "Disabled"
+                  : "Not loaded"}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Weather</dt>
+
+              <dd>
+                {settings
+                  ? settings.weather.enabled
+                    ? "Enabled"
+                    : "Disabled"
+                  : "Not loaded"}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Leaderboard</dt>
+
+              <dd>
+                {settings
+                  ? settings.leaderboard
+                      .enabled
+                    ? "Enabled"
+                    : "Disabled"
+                  : "Not loaded"}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Maintenance</dt>
+
+              <dd>
+                {settings
+                  ? settings.maintenance
+                      .enabled
+                    ? "Enabled"
+                    : "Disabled"
+                  : "Not loaded"}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Last test</dt>
+
+              <dd>
+                {settingsTestedAt
+                  ? settingsTestedAt.toLocaleString()
+                  : "Never"}
+              </dd>
+            </div>
+          </dl>
+        </article>
+
         <article className="card">
           <div className="cardHeader">
             <div>
               <p className="eyebrow">
                 ADMIN ACCOUNT
               </p>
+
               <h2>Notification access</h2>
             </div>
 
@@ -444,6 +778,7 @@ export function AdminDashboard() {
           <dl>
             <div>
               <dt>FID</dt>
+
               <dd>
                 {notificationUser?.fid ??
                   status?.adminFid ??
@@ -453,6 +788,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Notification URL</dt>
+
               <dd>
                 {notificationUser
                   ?.notificationUrl ??
@@ -462,6 +798,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Token</dt>
+
               <dd>
                 {notificationUser
                   ?.tokenPreview ??
@@ -471,6 +808,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Updated</dt>
+
               <dd>
                 {formatDate(
                   notificationUser?.updatedAt,
@@ -486,6 +824,7 @@ export function AdminDashboard() {
               <p className="eyebrow">
                 WEBHOOK
               </p>
+
               <h2>Last event</h2>
             </div>
 
@@ -511,6 +850,7 @@ export function AdminDashboard() {
           <dl>
             <div>
               <dt>Event type</dt>
+
               <dd>
                 {status?.lastWebhook
                   ?.event_type ??
@@ -520,6 +860,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Received</dt>
+
               <dd>
                 {formatDate(
                   status?.lastWebhook
@@ -530,6 +871,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Error</dt>
+
               <dd>
                 {status?.lastWebhook
                   ?.processing_error ??
@@ -539,6 +881,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Webhook URL</dt>
+
               <dd>
                 {status?.environment
                   .webhookUrl ??
@@ -554,6 +897,7 @@ export function AdminDashboard() {
               <p className="eyebrow">
                 DELIVERY
               </p>
+
               <h2>Last attempt</h2>
             </div>
 
@@ -574,6 +918,7 @@ export function AdminDashboard() {
           <dl>
             <div>
               <dt>Type</dt>
+
               <dd>
                 {status?.lastDelivery
                   ?.notification_type ??
@@ -583,6 +928,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Notification ID</dt>
+
               <dd>
                 {status?.lastDelivery
                   ?.notification_id ??
@@ -592,6 +938,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Attempted</dt>
+
               <dd>
                 {formatDate(
                   status?.lastDelivery
@@ -604,6 +951,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Error</dt>
+
               <dd>
                 {status?.lastDelivery
                   ?.error_message ??
@@ -619,6 +967,7 @@ export function AdminDashboard() {
               <p className="eyebrow">
                 SYSTEM
               </p>
+
               <h2>Configuration</h2>
             </div>
           </div>
@@ -626,6 +975,7 @@ export function AdminDashboard() {
           <dl>
             <div>
               <dt>Enabled users</dt>
+
               <dd>
                 {status?.enabledUserCount ??
                   0}
@@ -634,6 +984,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>App URL</dt>
+
               <dd>
                 {status?.environment
                   .appUrl ??
@@ -643,6 +994,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>JWT audience</dt>
+
               <dd>
                 {status?.environment
                   .audience ??
@@ -652,6 +1004,7 @@ export function AdminDashboard() {
 
             <div>
               <dt>Authorization</dt>
+
               <dd>
                 Quick Auth · FID allowlist
               </dd>
@@ -683,7 +1036,8 @@ export function AdminDashboard() {
         .grid,
         .errorBox,
         .successBox,
-        .warningBox {
+        .warningBox,
+        .criticalBox {
           width: min(100%, 960px);
           margin-right: auto;
           margin-left: auto;
@@ -783,6 +1137,18 @@ export function AdminDashboard() {
             rgba(0, 0, 0, 0.22);
         }
 
+        .settingsCard {
+          grid-column: 1 / -1;
+          border-color:
+            rgba(158, 198, 174, 0.2);
+          background:
+            linear-gradient(
+              145deg,
+              rgba(18, 48, 40, 0.92),
+              rgba(10, 29, 25, 0.9)
+            );
+        }
+
         .cardHeader {
           display: flex;
           align-items: flex-start;
@@ -842,7 +1208,8 @@ export function AdminDashboard() {
 
         .errorBox,
         .successBox,
-        .warningBox {
+        .warningBox,
+        .criticalBox {
           box-sizing: border-box;
           margin-bottom: 16px;
           padding: 14px 16px;
@@ -873,13 +1240,25 @@ export function AdminDashboard() {
             rgba(115, 88, 23, 0.24);
         }
 
+        .criticalBox {
+          border: 1px solid
+            rgba(255, 159, 83, 0.4);
+          color: #ffe2c2;
+          background:
+            rgba(151, 68, 17, 0.28);
+        }
+
         @media (max-width: 720px) {
           .grid {
             grid-template-columns: 1fr;
           }
 
+          .settingsCard {
+            grid-column: auto;
+          }
+
           .actions button {
-            flex: 1;
+            flex: 1 1 100%;
           }
 
           dl > div {
