@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authorizeTobyHopAdminApi } from "@/lib/admin/toby-hop-admin";
+import { authorizeAdminRequest } from "@/lib/admin/authorize-admin-request";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -46,7 +46,9 @@ function maskSecret(value: string | null): string | null {
   return `${value.slice(0, 6)}••••••${value.slice(-4)}`;
 }
 
-function maskNotificationUrl(value: string | null): string | null {
+function maskNotificationUrl(
+  value: string | null,
+): string | null {
   if (!value) {
     return null;
   }
@@ -59,8 +61,22 @@ function maskNotificationUrl(value: string | null): string | null {
   }
 }
 
-export async function GET() {
-  const authorization = await authorizeTobyHopAdminApi();
+function normalizePublicAppUrl(): string | null {
+  const rawUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.APP_URL ??
+    null;
+
+  if (!rawUrl) {
+    return null;
+  }
+
+  return rawUrl.replace(/\/+$/, "");
+}
+
+export async function GET(request: Request) {
+  const authorization =
+    await authorizeAdminRequest(request);
 
   if (!authorization.authorized) {
     return authorization.response;
@@ -78,7 +94,13 @@ export async function GET() {
     supabase
       .from("toby_hop_users")
       .select(
-        "fid, notification_url, notification_token, notifications_enabled, notifications_updated_at",
+        [
+          "fid",
+          "notification_url",
+          "notification_token",
+          "notifications_enabled",
+          "notifications_updated_at",
+        ].join(","),
       )
       .eq("fid", fid)
       .maybeSingle<AdminUserRow>(),
@@ -86,10 +108,17 @@ export async function GET() {
     supabase
       .from("toby_hop_webhook_events")
       .select(
-        "event_type, processed, processing_error, received_at",
+        [
+          "event_type",
+          "processed",
+          "processing_error",
+          "received_at",
+        ].join(","),
       )
       .eq("fid", fid)
-      .order("received_at", { ascending: false })
+      .order("received_at", {
+        ascending: false,
+      })
       .limit(1)
       .maybeSingle<WebhookRow>(),
 
@@ -108,10 +137,12 @@ export async function GET() {
           "created_at",
           "error_message",
           "provider_response",
-        ].join(", "),
+        ].join(","),
       )
       .eq("fid", fid)
-      .order("created_at", { ascending: false })
+      .order("created_at", {
+        ascending: false,
+      })
       .limit(1)
       .maybeSingle<DeliveryRow>(),
 
@@ -126,14 +157,15 @@ export async function GET() {
 
   if (userResult.error) {
     console.error(
-      "Failed to load admin notification user",
+      "Failed to load admin notification user.",
       userResult.error,
     );
 
     return NextResponse.json(
       {
         success: false,
-        error: userResult.error.message,
+        error:
+          "Failed to load notification account status.",
       },
       {
         status: 500,
@@ -146,30 +178,27 @@ export async function GET() {
 
   if (webhookResult.error) {
     console.error(
-      "Failed to load last webhook",
+      "Failed to load latest webhook event.",
       webhookResult.error,
     );
   }
 
   if (deliveryResult.error) {
     console.error(
-      "Failed to load last delivery",
+      "Failed to load latest notification delivery.",
       deliveryResult.error,
     );
   }
 
   if (enabledCountResult.error) {
     console.error(
-      "Failed to count notification users",
+      "Failed to count notification users.",
       enabledCountResult.error,
     );
   }
 
   const user = userResult.data;
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL ??
-    process.env.APP_URL ??
-    null;
+  const appUrl = normalizePublicAppUrl();
 
   return NextResponse.json(
     {
@@ -179,31 +208,46 @@ export async function GET() {
       environment: {
         appUrl,
         webhookUrl: appUrl
-          ? `${appUrl.replace(/\/$/, "")}/api/webhook`
+          ? `${appUrl}/api/webhook`
           : null,
+        audience:
+          process.env.FARCASTER_JWT_AUDIENCE ??
+          null,
       },
 
       notificationUser: user
         ? {
             fid: user.fid,
-            enabled: Boolean(user.notifications_enabled),
-            notificationUrl: maskNotificationUrl(
-              user.notification_url,
+            enabled: Boolean(
+              user.notifications_enabled,
             ),
-            tokenPreview: maskSecret(user.notification_token),
+            notificationUrl:
+              maskNotificationUrl(
+                user.notification_url,
+              ),
+            tokenPreview:
+              maskSecret(
+                user.notification_token,
+              ),
             hasNotificationUrl: Boolean(
               user.notification_url?.trim(),
             ),
             hasNotificationToken: Boolean(
               user.notification_token?.trim(),
             ),
-            updatedAt: user.notifications_updated_at,
+            updatedAt:
+              user.notifications_updated_at,
           }
         : null,
 
-      enabledUserCount: enabledCountResult.count ?? 0,
-      lastWebhook: webhookResult.data ?? null,
-      lastDelivery: deliveryResult.data ?? null,
+      enabledUserCount:
+        enabledCountResult.count ?? 0,
+
+      lastWebhook:
+        webhookResult.data ?? null,
+
+      lastDelivery:
+        deliveryResult.data ?? null,
     },
     {
       status: 200,
