@@ -45,7 +45,9 @@ function requireAppUrl(): URL {
   try {
     return new URL(rawUrl);
   } catch {
-    throw new Error("NEXT_PUBLIC_APP_URL is not a valid absolute URL.");
+    throw new Error(
+      "NEXT_PUBLIC_APP_URL is not a valid absolute URL.",
+    );
   }
 }
 
@@ -53,7 +55,9 @@ function validateNotificationInput(
   input: SendTobyHopNotificationInput,
 ): void {
   if (!Number.isSafeInteger(input.fid) || input.fid <= 0) {
-    throw new Error("A valid positive Farcaster FID is required.");
+    throw new Error(
+      "A valid positive Farcaster FID is required.",
+    );
   }
 
   const notificationId = input.notificationId.trim();
@@ -105,8 +109,13 @@ function validateNotificationInput(
     );
   }
 
-  if (targetUrl.protocol !== "https:" && appUrl.hostname !== "localhost") {
-    throw new Error("Notification targetUrl must use HTTPS.");
+  if (
+    targetUrl.protocol !== "https:" &&
+    appUrl.hostname !== "localhost"
+  ) {
+    throw new Error(
+      "Notification targetUrl must use HTTPS.",
+    );
   }
 }
 
@@ -121,7 +130,8 @@ function isProviderResponse(
     return false;
   }
 
-  const response = value as Partial<FarcasterNotificationResponse>;
+  const response =
+    value as Partial<FarcasterNotificationResponse>;
 
   return (
     Array.isArray(response.successfulTokens) &&
@@ -130,14 +140,18 @@ function isProviderResponse(
   );
 }
 
-function isUniqueViolation(error: {
-  code?: string | null;
-  message?: string | null;
-} | null): boolean {
+function isUniqueViolation(
+  error: {
+    code?: string | null;
+    message?: string | null;
+  } | null,
+): boolean {
   return error?.code === "23505";
 }
 
-async function safeReadResponse(response: Response): Promise<unknown> {
+async function safeReadResponse(
+  response: Response,
+): Promise<unknown> {
   const text = await response.text();
 
   if (!text) {
@@ -163,7 +177,9 @@ async function updateDelivery(
     deliveredAt?: string | null;
   },
 ): Promise<void> {
-  const { error } = await supabaseAdmin
+  const supabase = supabaseAdmin();
+
+  const { error } = await supabase
     .from("toby_hop_notification_deliveries")
     .update({
       status: values.status,
@@ -175,11 +191,14 @@ async function updateDelivery(
     .eq("notification_id", notificationId);
 
   if (error) {
-    console.error("Failed to update notification delivery log", {
-      fid,
-      notificationId,
-      error,
-    });
+    console.error(
+      "Failed to update notification delivery log",
+      {
+        fid,
+        notificationId,
+        error,
+      },
+    );
   }
 }
 
@@ -187,7 +206,9 @@ async function disableInvalidNotificationToken(
   fid: number,
   token: string,
 ): Promise<void> {
-  const { error } = await supabaseAdmin
+  const supabase = supabaseAdmin();
+
+  const { error } = await supabase
     .from("toby_hop_users")
     .update({
       notifications_enabled: false,
@@ -199,10 +220,13 @@ async function disableInvalidNotificationToken(
     .eq("notification_token", token);
 
   if (error) {
-    console.error("Failed to disable invalid notification token", {
-      fid,
-      error,
-    });
+    console.error(
+      "Failed to disable invalid notification token",
+      {
+        fid,
+        error,
+      },
+    );
   }
 }
 
@@ -211,13 +235,14 @@ export async function sendTobyHopNotification(
 ): Promise<SendTobyHopNotificationResult> {
   validateNotificationInput(input);
 
+  const supabase = supabaseAdmin();
   const notificationId = input.notificationId.trim();
   const title = input.title.trim();
   const body = input.body.trim();
   const targetUrl = normalizeTargetUrl(input.targetUrl);
   const attemptedAt = new Date().toISOString();
 
-  const { data: userData, error: userError } = await supabaseAdmin
+  const { data: userData, error: userError } = await supabase
     .from("toby_hop_users")
     .select(
       "fid, notification_url, notification_token, notifications_enabled",
@@ -251,8 +276,10 @@ export async function sendTobyHopNotification(
     };
   }
 
-  const notificationUrl = userData.notification_url?.trim();
-  const notificationToken = userData.notification_token?.trim();
+  const notificationUrl =
+    userData.notification_url?.trim();
+  const notificationToken =
+    userData.notification_token?.trim();
 
   if (!notificationUrl || !notificationToken) {
     return {
@@ -260,7 +287,8 @@ export async function sendTobyHopNotification(
       status: "missing_credentials",
       fid: input.fid,
       notificationId,
-      error: "The user does not have a saved notification URL and token.",
+      error:
+        "The user does not have a saved notification URL and token.",
     };
   }
 
@@ -303,7 +331,7 @@ export async function sendTobyHopNotification(
     delivered_at: null,
   };
 
-  const { error: insertError } = await supabaseAdmin
+  const { error: insertError } = await supabase
     .from("toby_hop_notification_deliveries")
     .insert(delivery);
 
@@ -351,7 +379,8 @@ export async function sendTobyHopNotification(
     });
 
     const latencyMs = Date.now() - startedAt;
-    const providerResponse = await safeReadResponse(response);
+    const providerResponse =
+      await safeReadResponse(response);
 
     const loggedProviderResponse = {
       httpStatus: response.status,
@@ -360,7 +389,8 @@ export async function sendTobyHopNotification(
     };
 
     if (!response.ok) {
-      const errorMessage = `Notification server returned HTTP ${response.status}.`;
+      const errorMessage =
+        `Notification server returned HTTP ${response.status}.`;
 
       await updateDelivery(input.fid, notificationId, {
         status: "failed",
@@ -402,11 +432,16 @@ export async function sendTobyHopNotification(
       };
     }
 
-    if (providerResponse.invalidTokens.includes(notificationToken)) {
+    if (
+      providerResponse.invalidTokens.includes(
+        notificationToken,
+      )
+    ) {
       await updateDelivery(input.fid, notificationId, {
         status: "invalid_token",
         providerResponse: loggedProviderResponse,
-        errorMessage: "The Farcaster client marked the token as invalid.",
+        errorMessage:
+          "The Farcaster client marked the token as invalid.",
       });
 
       await disableInvalidNotificationToken(
@@ -427,11 +462,16 @@ export async function sendTobyHopNotification(
       };
     }
 
-    if (providerResponse.rateLimitedTokens.includes(notificationToken)) {
+    if (
+      providerResponse.rateLimitedTokens.includes(
+        notificationToken,
+      )
+    ) {
       await updateDelivery(input.fid, notificationId, {
         status: "rate_limited",
         providerResponse: loggedProviderResponse,
-        errorMessage: "The notification token was rate limited.",
+        errorMessage:
+          "The notification token was rate limited.",
       });
 
       return {
@@ -441,12 +481,17 @@ export async function sendTobyHopNotification(
         notificationId,
         httpStatus: response.status,
         latencyMs,
-        error: "The notification was rate limited. Try again later.",
+        error:
+          "The notification was rate limited. Try again later.",
         providerResponse,
       };
     }
 
-    if (!providerResponse.successfulTokens.includes(notificationToken)) {
+    if (
+      !providerResponse.successfulTokens.includes(
+        notificationToken,
+      )
+    ) {
       const errorMessage =
         "The notification server did not report the token as successful.";
 
