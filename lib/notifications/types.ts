@@ -17,10 +17,15 @@ export type SendTobyHopNotificationInput = {
   pondDate?: string | null;
 };
 
-export type FarcasterNotificationResponse = {
+export type FarcasterNotificationTokenResult = {
   successfulTokens: string[];
   invalidTokens: string[];
   rateLimitedTokens: string[];
+  failedTokens?: string[];
+};
+
+export type FarcasterNotificationResponse = {
+  result: FarcasterNotificationTokenResult;
 };
 
 export type NotificationDeliveryStatus =
