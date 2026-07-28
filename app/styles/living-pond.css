@@ -110,3 +110,323 @@
 @media (prefers-reduced-motion: reduce) {
   .living-pond-layer { display: none; }
 }
+
+/* =========================================================
+   VERIFIED HOP ENCOUNTERS
+   This reuses the existing living pond layer and temporarily
+   replaces ambient wildlife while a verified encounter is shown.
+   ========================================================= */
+
+.living-encounter-layer {
+  z-index: 16;
+  overflow: hidden;
+  contain: paint;
+}
+
+.living-encounter-wash,
+.living-encounter-beam,
+.living-encounter-ripple,
+.living-encounter-symbol,
+.living-encounter-spark,
+.living-golden-ring,
+.living-golden-crown,
+.living-secret-shadow {
+  position: absolute;
+  pointer-events: none;
+}
+
+.living-encounter-wash {
+  inset: 0;
+  opacity: 0;
+  background:
+    radial-gradient(
+      ellipse at 50% 72%,
+      var(--encounter-glow),
+      transparent 48%
+    ),
+    linear-gradient(
+      180deg,
+      transparent 25%,
+      rgba(1, 13, 17, 0.18) 100%
+    );
+  animation: livingEncounterWash var(--encounter-duration) ease-in-out 1 both;
+}
+
+.living-encounter-beam {
+  z-index: 2;
+  left: 50%;
+  bottom: 92px;
+  width: 142px;
+  height: 250px;
+  opacity: 0;
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      var(--encounter-beam) 50%,
+      transparent
+    );
+  clip-path: polygon(43% 0, 57% 0, 100% 100%, 0 100%);
+  filter: blur(6px);
+  animation: livingEncounterBeam var(--encounter-duration) ease-in-out 1 both;
+}
+
+.living-encounter-ripple {
+  z-index: 3;
+  left: 50%;
+  bottom: 104px;
+  width: 96px;
+  height: 26px;
+  border: 2px solid var(--encounter-line);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateX(-50%) scale(0.15);
+  box-shadow: 0 0 16px var(--encounter-glow);
+}
+
+.living-encounter-ripple-one {
+  animation: livingEncounterRipple 2.5s ease-out 0.1s 1 both;
+}
+
+.living-encounter-ripple-two {
+  animation: livingEncounterRipple 2.8s ease-out 0.7s 1 both;
+}
+
+.living-encounter-symbol {
+  z-index: 5;
+  left: 50%;
+  bottom: 132px;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--encounter-line);
+  border-radius: 50%;
+  color: var(--encounter-ink);
+  background:
+    radial-gradient(
+      circle at 35% 28%,
+      rgba(255, 255, 255, 0.22),
+      transparent 30%
+    ),
+    var(--encounter-surface);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.22),
+    0 0 0 8px rgba(255, 255, 255, 0.025),
+    0 0 34px var(--encounter-glow),
+    0 16px 30px rgba(0, 0, 0, 0.28);
+  font-size: 2rem;
+  font-weight: 950;
+  opacity: 0;
+  transform: translate(-50%, 34px) scale(0.4) rotate(-8deg);
+  animation: livingEncounterRise var(--encounter-duration) cubic-bezier(.22,.8,.24,1) 1 both;
+}
+
+.living-encounter-spark {
+  z-index: 6;
+  left: 50%;
+  bottom: 162px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  opacity: 0;
+  background: var(--encounter-ink);
+  box-shadow:
+    0 0 8px var(--encounter-ink),
+    0 0 16px var(--encounter-glow);
+  animation: livingEncounterSpark 2.7s ease-out 0.5s 1 both;
+}
+
+.living-encounter-spark-one { --spark-x: -78px; --spark-y: -66px; }
+.living-encounter-spark-two { --spark-x: 75px; --spark-y: -48px; animation-delay: .68s; }
+.living-encounter-spark-three { --spark-x: -54px; --spark-y: -116px; animation-delay: .82s; }
+.living-encounter-spark-four { --spark-x: 48px; --spark-y: -126px; animation-delay: .98s; }
+.living-encounter-spark-five { --spark-x: 2px; --spark-y: -154px; animation-delay: 1.12s; }
+
+.living-encounter-ambient {
+  --encounter-ink: #d8fff7;
+  --encounter-line: rgba(197, 255, 244, 0.48);
+  --encounter-glow: rgba(115, 240, 217, 0.22);
+  --encounter-beam: rgba(142, 255, 234, 0.13);
+  --encounter-surface: linear-gradient(145deg, #1a7377, #0c3f48);
+}
+
+.living-encounter-find {
+  --encounter-ink: #eafff9;
+  --encounter-line: rgba(167, 255, 235, 0.66);
+  --encounter-glow: var(--discovery-glow);
+  --encounter-beam: rgba(127, 246, 222, 0.22);
+  --encounter-surface: linear-gradient(145deg, #28a5a0, #0b5660);
+}
+
+.living-encounter-rare {
+  --encounter-ink: #f0e9ff;
+  --encounter-line: rgba(212, 190, 255, 0.72);
+  --encounter-glow: var(--rare-glow);
+  --encounter-beam: rgba(190, 155, 255, 0.25);
+  --encounter-surface: linear-gradient(145deg, #8060b5, #273968);
+}
+
+.living-encounter-secret {
+  --encounter-ink: #f0e8ff;
+  --encounter-line: rgba(202, 172, 255, 0.7);
+  --encounter-glow: var(--secret-glow);
+  --encounter-beam: rgba(143, 92, 224, 0.23);
+  --encounter-surface: linear-gradient(145deg, #694a99, #171c3f);
+}
+
+.living-encounter-golden {
+  --encounter-ink: #fff7c2;
+  --encounter-line: rgba(255, 224, 116, 0.84);
+  --encounter-glow: var(--golden-glow);
+  --encounter-beam: rgba(255, 213, 81, 0.3);
+  --encounter-surface: linear-gradient(145deg, #ffe989, #bd7415);
+}
+
+.living-encounter-rarity-legendary .living-encounter-symbol,
+.living-encounter-rarity-secret .living-encounter-symbol {
+  width: 82px;
+  height: 82px;
+  font-size: 2.25rem;
+}
+
+.living-golden-ring {
+  z-index: 4;
+  left: 50%;
+  bottom: 127px;
+  width: 110px;
+  height: 110px;
+  border: 2px solid rgba(255, 225, 121, 0.46);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateX(-50%) scale(0.3);
+  box-shadow:
+    0 0 18px rgba(255, 216, 82, 0.4),
+    inset 0 0 18px rgba(255, 230, 137, 0.18);
+  animation: livingGoldenRing 3.4s ease-out 0.3s 1 both;
+}
+
+.living-golden-ring-two {
+  width: 148px;
+  height: 148px;
+  bottom: 108px;
+  animation-delay: .75s;
+}
+
+.living-golden-crown {
+  z-index: 7;
+  left: 50%;
+  bottom: 201px;
+  color: #ffe57c;
+  font-size: 1.6rem;
+  opacity: 0;
+  filter: drop-shadow(0 0 10px rgba(255, 216, 77, 0.8));
+  transform: translate(-50%, 15px) rotate(-7deg);
+  animation: livingGoldenCrown 4.5s ease-in-out .9s 1 both;
+}
+
+.living-secret-shadow {
+  z-index: 1;
+  right: 8%;
+  bottom: 50px;
+  width: 84%;
+  height: 145px;
+  border-radius: 50%;
+  opacity: 0;
+  background:
+    radial-gradient(
+      ellipse,
+      rgba(26, 15, 55, 0.72),
+      transparent 68%
+    );
+  filter: blur(10px);
+  animation: livingSecretShadow 5.8s ease-in-out .35s 1 both;
+}
+
+@keyframes livingEncounterWash {
+  0%, 100% { opacity: 0; }
+  18%, 72% { opacity: 1; }
+}
+
+@keyframes livingEncounterBeam {
+  0%, 100% { opacity: 0; transform: translateX(-50%) scaleY(.55); }
+  25%, 70% { opacity: 1; transform: translateX(-50%) scaleY(1); }
+}
+
+@keyframes livingEncounterRipple {
+  0% { opacity: 0; transform: translateX(-50%) scale(.15); }
+  20% { opacity: .85; }
+  100% { opacity: 0; transform: translateX(-50%) scale(3.2); }
+}
+
+@keyframes livingEncounterRise {
+  0% { opacity: 0; transform: translate(-50%, 34px) scale(.4) rotate(-8deg); }
+  22% { opacity: 1; }
+  38%, 76% { opacity: 1; transform: translate(-50%, 0) scale(1) rotate(0); }
+  88% { opacity: .75; transform: translate(-50%, -5px) scale(.96) rotate(2deg); }
+  100% { opacity: 0; transform: translate(-50%, -16px) scale(.86) rotate(3deg); }
+}
+
+@keyframes livingEncounterSpark {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(.2); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--spark-x)), var(--spark-y)) scale(1.1); }
+}
+
+@keyframes livingGoldenRing {
+  0% { opacity: 0; transform: translateX(-50%) scale(.3); }
+  25% { opacity: .9; }
+  100% { opacity: 0; transform: translateX(-50%) scale(1.8); }
+}
+
+@keyframes livingGoldenCrown {
+  0%, 100% { opacity: 0; transform: translate(-50%, 15px) rotate(-7deg); }
+  24%, 72% { opacity: 1; transform: translate(-50%, 0) rotate(3deg); }
+  48% { transform: translate(-50%, -5px) rotate(-3deg); }
+}
+
+@keyframes livingSecretShadow {
+  0%, 100% { opacity: 0; transform: scale(.85) translateY(20px); }
+  30%, 72% { opacity: .86; transform: scale(1.04) translateY(0); }
+}
+
+@media (max-width: 390px) {
+  .living-encounter-symbol {
+    bottom: 126px;
+  }
+
+  .living-encounter-ripple {
+    bottom: 100px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .living-pond-layer:not(.living-encounter-layer) {
+    display: none;
+  }
+
+  .living-encounter-layer {
+    display: block;
+  }
+
+  .living-encounter-wash,
+  .living-encounter-symbol {
+    animation: none;
+    opacity: 1;
+  }
+
+  .living-encounter-symbol {
+    transform: translate(-50%, 0);
+  }
+
+  .living-encounter-beam,
+  .living-encounter-ripple,
+  .living-encounter-spark,
+  .living-golden-ring,
+  .living-golden-crown,
+  .living-secret-shadow {
+    display: none;
+  }
+}
