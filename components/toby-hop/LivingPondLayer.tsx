@@ -8,6 +8,7 @@ import type { PondEncounter } from '@/lib/types';
 type LivingPondLayerProps = LivingPondContext & {
   encounter?: PondEncounter | null;
   onFrogCueChange: (cue: FrogCue) => void;
+  onEventChange?: (event: ReturnType<typeof useLivingPond>['activeEvent']) => void;
 };
 
 function getEncounterFrogCue(
@@ -74,6 +75,7 @@ function getEncounterSymbol(
 export function LivingPondLayer({
   encounter = null,
   onFrogCueChange,
+  onEventChange,
   ...context
 }: LivingPondLayerProps) {
   const { activeEvent, frogCue } = useLivingPond(context);
@@ -85,6 +87,10 @@ export function LivingPondLayer({
         : frogCue,
     );
   }, [encounter, frogCue, onFrogCueChange]);
+
+  useEffect(() => {
+    onEventChange?.(encounter ? null : activeEvent);
+  }, [activeEvent, encounter, onEventChange]);
 
   if (encounter) {
     return (
