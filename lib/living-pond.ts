@@ -10,7 +10,17 @@ export type LivingPondEventId =
   | 'tiny-toby'
   | 'moon-gaze'
   | 'lotus-whisper'
-  | 'golden-butterfly';
+  | 'golden-butterfly'
+  | 'bubble-trail'
+  | 'reed-rustle'
+  | 'lily-turn'
+  | 'floating-feather'
+  | 'snail-visit'
+  | 'duck-family'
+  | 'frog-call'
+  | 'firefly-rest'
+  | 'bottle-glint'
+  | 'heron-shadow';
 
 export type FrogCue =
   | 'idle'
@@ -129,6 +139,79 @@ export const LIVING_POND_EVENTS: readonly LivingPondEventDefinition[] = [
     frogCue: 'double-blink',
     allowed: ({ busy, raining, snowing, streak }) =>
       !busy && !raining && !snowing && streak >= 3,
+  },
+
+  {
+    id: 'bubble-trail',
+    durationMs: 4_800,
+    weight: 13,
+    frogCue: 'glance-left',
+    allowed: ({ busy, snowing }) => !busy && !snowing,
+  },
+  {
+    id: 'reed-rustle',
+    durationMs: 4_600,
+    weight: 12,
+    frogCue: 'curious',
+    allowed: ({ busy }) => !busy,
+  },
+  {
+    id: 'lily-turn',
+    durationMs: 5_500,
+    weight: 10,
+    frogCue: 'blink',
+    allowed: ({ busy, snowing }) => !busy && !snowing,
+  },
+  {
+    id: 'floating-feather',
+    durationMs: 8_200,
+    weight: 7,
+    frogCue: 'look-up',
+    allowed: ({ busy, raining, snowing }) => !busy && !raining && !snowing,
+  },
+  {
+    id: 'snail-visit',
+    durationMs: 10_500,
+    weight: 6,
+    frogCue: 'glance-right',
+    allowed: ({ busy, raining, snowing }) => !busy && raining && !snowing,
+  },
+  {
+    id: 'duck-family',
+    durationMs: 9_500,
+    weight: 4,
+    frogCue: 'smile',
+    allowed: ({ busy, raining, snowing, hour }) =>
+      !busy && !raining && !snowing && hour >= 7 && hour < 19,
+  },
+  {
+    id: 'frog-call',
+    durationMs: 5_200,
+    weight: 8,
+    frogCue: 'curious',
+    allowed: ({ busy, snowing, hour }) => !busy && !snowing && (hour >= 17 || hour < 8),
+  },
+  {
+    id: 'firefly-rest',
+    durationMs: 6_800,
+    weight: 7,
+    frogCue: 'glance-right',
+    allowed: ({ busy, fireflies, hour }) => !busy && fireflies && nightHours(hour),
+  },
+  {
+    id: 'bottle-glint',
+    durationMs: 7_600,
+    weight: 3,
+    frogCue: 'curious',
+    allowed: ({ busy, snowing }) => !busy && !snowing,
+  },
+  {
+    id: 'heron-shadow',
+    durationMs: 5_800,
+    weight: 2,
+    frogCue: 'look-up',
+    allowed: ({ busy, raining, snowing, hour }) =>
+      !busy && !raining && !snowing && hour >= 6 && hour < 18,
   },
   {
     id: 'golden-butterfly',
