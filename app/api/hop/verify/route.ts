@@ -42,6 +42,10 @@ import {
   formatAtomic,
 } from '@/lib/format';
 
+import {
+  processEvent,
+} from '@/lib/toby-core/events/dispatcher';
+
 export const dynamic =
   'force-dynamic';
 
@@ -149,6 +153,7 @@ function jsonResponse(
     body,
     {
       status,
+
       headers:
         noStoreHeaders(),
     },
@@ -1131,12 +1136,75 @@ export async function POST(
       result.hop_id,
       castText,
     );
-    await processDailyChallenges({
-  fid: identity.fid,
-  hopId: result.hop_id,
-  streak: result.streak_after,
-  totalHops: result.total_hops_after,
-});
+
+    /*
+      Only newly recorded hops dispatch an event.
+
+      Existing transactions return earlier in the route, preventing
+      the same hop from updating progression more than once.
+    */
+    if (identity.fid) {
+      await processEvent({
+        type:
+          'hop_completed',
+
+        fid:
+          identity.fid,
+
+        wallet:
+          normalizedWallet,
+
+        metadata: {
+          hopId:
+            result.hop_id,
+
+          transactionHash:
+            transactionHash
+              .toLowerCase(),
+
+          blockNumber:
+            receipt.blockNumber
+              .toString(),
+
+          streak:
+            result.streak_after,
+
+          totalHops:
+            result.total_hops_after,
+
+          dailyPosition:
+            result.daily_position,
+
+          title,
+
+          tobyReceivedAtomic:
+            tobyReceived
+              .toString(),
+
+          usdcSpentAtomic:
+            usdcSpent
+              .toString(),
+
+          accountAbstraction:
+            !directWalletTransaction,
+        },
+      });
+    } else {
+      console.info(
+        'Skipped Toby event dispatch because the canonical identity has no FID:',
+        {
+          hopId:
+            result.hop_id,
+
+          wallet:
+            normalizedWallet,
+
+          transactionHash:
+            transactionHash
+              .toLowerCase(),
+        },
+      );
+    }
 
     return jsonResponse({
       hopId:
