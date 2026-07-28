@@ -53,6 +53,27 @@ type AdminStatus = {
     updatedAt: string | null;
   } | null;
   enabledUserCount: number;
+  subscriberStats: {
+    pondDate: string;
+    totalRegistered: number;
+    enabled: number;
+    disabled: number;
+    withCredentials: number;
+    missingCredentials: number;
+    alreadyHoppedToday: number;
+    eligibleToday: number;
+  };
+  candidatePreview: Array<{
+    fid: number;
+    status: "eligible" | "already_hopped" | "missing_credentials" | "disabled";
+    reason: string;
+    enabled: boolean;
+    hasNotificationUrl: boolean;
+    hasNotificationToken: boolean;
+    lastHopDay: string | null;
+    currentStreak: number;
+    updatedAt: string | null;
+  }>;
   lastWebhook: {
     event_type: string;
     processed: boolean;
@@ -91,6 +112,17 @@ type TestResult = {
   notificationId?: string;
   httpStatus?: number;
   latencyMs?: number;
+  error?: string;
+};
+
+type ForceSendResult = {
+  success: boolean;
+  scope?: "me" | "all";
+  recipients?: number;
+  sent?: number;
+  failed?: number;
+  skipped?: number;
+  duplicate?: number;
   error?: string;
 };
 
@@ -185,12 +217,14 @@ export function AdminDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [sendingKind, setSendingKind] = useState<TestKind | null>(null);
   const [runningCron, setRunningCron] = useState(false);
+  const [forcingScope, setForcingScope] = useState<"me" | "all" | null>(null);
   const [testingSettings, setTestingSettings] = useState(false);
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [cronResult, setCronResult] = useState<CronRunResult | null>(null);
+  const [forceResult, setForceResult] = useState<ForceSendResult | null>(null);
   const [settingsTestedAt, setSettingsTestedAt] = useState<Date | null>(null);
 
   const loadStatus = useCallback(async (initial = false) => {
@@ -286,6 +320,50 @@ export function AdminDashboard() {
     }
   }
 
+  async function forceSend(scope: "me" | "all") {
+    if (scope === "all") {
+      const confirmed = window.confirm(
+        "Send a clearly labeled TEST notification to every enabled subscriber with valid credentials?",
+      );
+      if (!confirmed) return;
+    }
+
+    setForcingScope(scope);
+    setError(null);
+    setForceResult(null);
+
+    try {
+      const response = await sdk.quickAuth.fetch("/api/admin/notifications/force-send", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope,
+          confirmation: scope === "all" ? "SEND TEST TO ALL" : undefined,
+        }),
+        cache: "no-store",
+      });
+
+      if (response.status === 404) {
+        setDenied(true);
+        setStatus(null);
+        return;
+      }
+
+      const payload = await readJson<ForceSendResult>(response);
+      setForceResult(payload);
+
+      if (!response.ok && response.status !== 207) {
+        throw new Error(payload.error ?? "The forced notification test failed.");
+      }
+
+      await loadStatus(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The forced notification test failed.");
+    } finally {
+      setForcingScope(null);
+    }
+  }
+
   async function runReminderCronNow() {
     setRunningCron(true);
     setError(null);
@@ -358,6 +436,7 @@ export function AdminDashboard() {
       {settingsError ? <div className="errorBox"><strong>Settings test failed.</strong> {settingsError}</div> : null}
       {testResult?.success ? <div className="successBox"><strong>{testResult.kind} notification sent.</strong>{testResult.httpStatus ? ` HTTP ${testResult.httpStatus}.` : ""}{typeof testResult.latencyMs === "number" ? ` ${testResult.latencyMs} ms.` : ""}</div> : null}
       {cronResult?.success ? <div className="successBox"><strong>Reminder job completed.</strong> Candidates {cronResult.candidates ?? 0}, sent {cronResult.sent ?? 0}, failed {cronResult.failed ?? 0}, skipped {cronResult.skipped ?? 0}, duplicates {cronResult.duplicate ?? 0}.</div> : null}
+      {forceResult ? <div className={forceResult.failed ? "warningBox" : "successBox"}><strong>Forced {forceResult.scope} test completed.</strong> Recipients {forceResult.recipients ?? 0}, sent {forceResult.sent ?? 0}, failed {forceResult.failed ?? 0}, skipped {forceResult.skipped ?? 0}.</div> : null}
       {!credentialsReady ? <div className="warningBox">Notification testing is disabled until your Farcaster notification URL and token are saved and notifications are enabled.</div> : null}
       {!status?.cronLoggingReady ? <div className="warningBox"><strong>Cron logging table not found.</strong> Run the included Supabase migration before relying on cron history.</div> : null}
       {maintenanceEnabled ? <div className="criticalBox"><strong>Maintenance mode is enabled.</strong> This only affects gameplay after the setting is wired into app routes.</div> : null}
@@ -386,6 +465,39 @@ export function AdminDashboard() {
             {runningCron ? "Running Same Reminder Job…" : "Run Reminder Job Now"}
           </button>
           <p className="finePrint">This button uses the same shared reminder function as Vercel Cron. A successful manual run proves the selection, delivery, deduplication, and logging path. A future row with source <code>vercel_cron</code> proves Vercel invoked it automatically.</p>
+        </article>
+
+        <article className="card wideCard subscriberCard">
+          <div className="cardHeader">
+            <div><p className="eyebrow">SUBSCRIBER OPERATIONS</p><h2>Who can receive notifications today</h2></div>
+            <span className={statusTone(Boolean(status?.subscriberStats.withCredentials))}>{status?.subscriberStats.withCredentials ?? 0} connected</span>
+          </div>
+          <div className="subscriberMetrics">
+            <div><strong>{status?.subscriberStats.totalRegistered ?? 0}</strong><span>Registered users</span></div>
+            <div><strong>{status?.subscriberStats.enabled ?? 0}</strong><span>Notifications enabled</span></div>
+            <div><strong>{status?.subscriberStats.withCredentials ?? 0}</strong><span>Valid credentials</span></div>
+            <div><strong>{status?.subscriberStats.eligibleToday ?? 0}</strong><span>Eligible today</span></div>
+            <div><strong>{status?.subscriberStats.alreadyHoppedToday ?? 0}</strong><span>Already hopped</span></div>
+            <div><strong>{status?.subscriberStats.missingCredentials ?? 0}</strong><span>Missing credentials</span></div>
+            <div><strong>{status?.subscriberStats.disabled ?? 0}</strong><span>Disabled</span></div>
+          </div>
+          <div className="forceActions">
+            <button className="secondaryButton" disabled={Boolean(forcingScope) || runningCron || Boolean(sendingKind) || !credentialsReady} onClick={() => void forceSend("me")}>{forcingScope === "me" ? "Sending…" : "Force Test To Me"}</button>
+            <button className="dangerButton" disabled={Boolean(forcingScope) || runningCron || Boolean(sendingKind) || !(status?.subscriberStats.withCredentials)} onClick={() => void forceSend("all")}>{forcingScope === "all" ? "Sending To Subscribers…" : "Force Test To All Subscribers"}</button>
+          </div>
+          <p className="finePrint">The bulk button ignores whether someone already hopped today, but it still requires an active subscription and valid Farcaster notification credentials. Every message is labeled TEST and logged individually.</p>
+          <div className="candidateTable">
+            <div className="candidateHead"><span>FID</span><span>Status</span><span>Reason</span><span>Last hop</span></div>
+            {(status?.candidatePreview ?? []).map((candidate) => (
+              <div className="candidateRow" key={candidate.fid}>
+                <strong>{candidate.fid}</strong>
+                <span className={`candidateStatus candidate-${candidate.status}`}>{candidate.status.replaceAll("_", " ")}</span>
+                <span>{candidate.reason}</span>
+                <span>{candidate.lastHopDay ?? "Never"}</span>
+              </div>
+            ))}
+            {!status?.candidatePreview.length ? <p className="emptyState">No user records were returned.</p> : null}
+          </div>
         </article>
 
         <article className="card wideCard">
@@ -472,10 +584,11 @@ const gateCss = `
 const notFoundCss = `.notFound{display:grid;min-height:100vh;place-content:center;color:#edf3ed;text-align:center;background:#07110f}h1{margin:0;font-size:4rem}p{color:#91a39a}`;
 const styles = `
   .adminShell{min-height:100vh;padding:28px 18px 80px;color:#f7f5e9;background:radial-gradient(circle at 50% -10%,rgba(76,158,133,.24),transparent 42%),linear-gradient(180deg,#071513 0%,#08110f 100%)}
-  .hero,.actions,.grid,.errorBox,.successBox,.warningBox,.criticalBox{width:min(100%,960px);margin-right:auto;margin-left:auto}.hero{padding:28px 0 20px}.eyebrow{margin:0 0 8px;color:#9ec6ae;font-size:.72rem;font-weight:800;letter-spacing:.16em}h1,h2,p{margin-top:0}h1{margin-bottom:12px;font-size:clamp(2rem,8vw,4rem);line-height:.98}h2{margin-bottom:0;font-size:1.12rem}.heroCopy{max-width:680px;color:#b9c7bf;line-height:1.6}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px}button{min-height:48px;padding:0 18px;border-radius:14px;font:inherit;font-weight:800;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}.primaryButton{border:1px solid #dceeb7;color:#102017;background:#dceeb7}.secondaryButton{border:1px solid rgba(255,255,255,.18);color:#f7f5e9;background:rgba(255,255,255,.06)}
+  .hero,.actions,.grid,.errorBox,.successBox,.warningBox,.criticalBox{width:min(100%,960px);margin-right:auto;margin-left:auto}.hero{padding:28px 0 20px}.eyebrow{margin:0 0 8px;color:#9ec6ae;font-size:.72rem;font-weight:800;letter-spacing:.16em}h1,h2,p{margin-top:0}h1{margin-bottom:12px;font-size:clamp(2rem,8vw,4rem);line-height:.98}h2{margin-bottom:0;font-size:1.12rem}.heroCopy{max-width:680px;color:#b9c7bf;line-height:1.6}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px}button{min-height:48px;padding:0 18px;border-radius:14px;font:inherit;font-weight:800;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}.primaryButton{border:1px solid #dceeb7;color:#102017;background:#dceeb7}.secondaryButton{border:1px solid rgba(255,255,255,.18);color:#f7f5e9;background:rgba(255,255,255,.06)}.dangerButton{border:1px solid rgba(255,135,106,.45);color:#ffd9cf;background:rgba(139,45,27,.28)}
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{min-width:0;padding:20px;border:1px solid rgba(255,255,255,.09);border-radius:20px;background:rgba(13,31,27,.8);box-shadow:0 18px 50px rgba(0,0,0,.22)}.wideCard,.settingsCard{grid-column:1/-1}.settingsCard{border-color:rgba(158,198,174,.2);background:linear-gradient(145deg,rgba(18,48,40,.92),rgba(10,29,25,.9))}.cronCard{background:linear-gradient(145deg,rgba(34,56,43,.96),rgba(9,29,25,.92))}.cardHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.status{flex:none;padding:6px 9px;border-radius:999px;font-size:.72rem;font-weight:800;text-transform:capitalize}.statusGood{color:#bff6ce;background:rgba(42,154,85,.18)}.statusBad{color:#ffd5ca;background:rgba(195,76,48,.18)}
   dl{margin:0}dl>div{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(0,1.3fr);gap:12px;padding:11px 0;border-top:1px solid rgba(255,255,255,.07)}dt{color:#8ea198;font-size:.82rem}dd{min-width:0;margin:0;color:#f2f5ed;font-size:.82rem;overflow-wrap:anywhere}.errorBox,.successBox,.warningBox,.criticalBox{box-sizing:border-box;margin-bottom:16px;padding:14px 16px;border-radius:14px}.errorBox{border:1px solid rgba(255,115,86,.35);color:#ffd5ca;background:rgba(133,44,26,.25)}.successBox{border:1px solid rgba(110,218,144,.32);color:#c8f5d5;background:rgba(31,113,62,.25)}.warningBox{border:1px solid rgba(238,205,108,.28);color:#f5e6b5;background:rgba(115,88,23,.24)}.criticalBox{border:1px solid rgba(255,159,83,.4);color:#ffe2c2;background:rgba(151,68,17,.28)}
   .testGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.testButton{display:flex;align-items:center;gap:12px;min-height:72px;text-align:left;border:1px solid rgba(255,255,255,.1);color:#f7f5e9;background:rgba(255,255,255,.045)}.testButton:hover:not(:disabled){background:rgba(255,255,255,.09)}.testIcon{font-size:1.5rem}.testButton strong,.testButton small{display:block}.testButton small{margin-top:4px;color:#90a49a;font-weight:500;line-height:1.35}.cronSummary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}.cronSummary>div,.cronMetrics>div{padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(0,0,0,.12)}.cronSummary span,.cronMetrics span{display:block;color:#8ea198;font-size:.75rem}.cronSummary strong{display:block;margin-top:5px;font-size:.9rem}.cronMetrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px}.cronMetrics strong{display:block;font-size:1.35rem}.runButton{width:100%;margin-top:4px}.finePrint{margin:12px 0 0;color:#90a49a;font-size:.78rem;line-height:1.5}.finePrint code{color:#c8f5d5}.inlineError{margin-bottom:12px;padding:10px;border-radius:10px;color:#ffd5ca;background:rgba(133,44,26,.25)}
+  .subscriberMetrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}.subscriberMetrics>div{padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(0,0,0,.12)}.subscriberMetrics strong{display:block;font-size:1.35rem}.subscriberMetrics span{display:block;margin-top:3px;color:#8ea198;font-size:.75rem}.forceActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.candidateTable{margin-top:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);border-radius:14px}.candidateHead,.candidateRow{display:grid;grid-template-columns:.55fr .9fr 1.6fr .8fr;gap:10px;align-items:center;padding:11px 12px}.candidateHead{color:#8ea198;font-size:.72rem;font-weight:800;background:rgba(0,0,0,.16)}.candidateRow{border-top:1px solid rgba(255,255,255,.06);font-size:.78rem}.candidateStatus{width:max-content;padding:5px 8px;border-radius:999px;text-transform:capitalize}.candidate-eligible{color:#bff6ce;background:rgba(42,154,85,.18)}.candidate-already_hopped{color:#d8e4de;background:rgba(135,154,145,.15)}.candidate-missing_credentials,.candidate-disabled{color:#ffd5ca;background:rgba(195,76,48,.18)}
   .deliveryList{display:grid;gap:9px}.deliveryRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(0,0,0,.1)}.deliveryRow div span{display:block;margin-top:4px;color:#8ea198;font-size:.75rem}.deliveryRow p{grid-column:1/-1;margin:0;color:#bac8c0;font-size:.8rem;line-height:1.45}.emptyState{margin:0;color:#8ea198}
-  @media(max-width:720px){.grid{grid-template-columns:1fr}.wideCard,.settingsCard{grid-column:auto}.actions button{flex:1 1 100%}dl>div{grid-template-columns:1fr;gap:4px}.testGrid,.cronSummary{grid-template-columns:1fr}.cronMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.deliveryRow{grid-template-columns:1fr}.deliveryRow p{grid-column:auto}}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}.wideCard,.settingsCard{grid-column:auto}.actions button{flex:1 1 100%}dl>div{grid-template-columns:1fr;gap:4px}.testGrid,.cronSummary,.forceActions{grid-template-columns:1fr}.cronMetrics,.subscriberMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.candidateHead{display:none}.candidateRow{grid-template-columns:1fr;gap:5px}.deliveryRow{grid-template-columns:1fr}.deliveryRow p{grid-column:auto}}
 `;
