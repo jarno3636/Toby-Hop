@@ -3,24 +3,12 @@ import {
 } from './processors/analytics';
 
 import {
-  runChallengeProcessor,
-} from './processors/challenges';
-
-import {
   runNotificationProcessor,
 } from './processors/notifications';
 
 import {
   runSecretProcessor,
 } from './processors/secrets';
-
-import {
-  runTitleProcessor,
-} from './processors/titles';
-
-import {
-  runXpProcessor,
-} from './processors/xp';
 
 export type TobyEventType =
   | 'hop_completed'
@@ -59,9 +47,6 @@ export interface EventProcessor {
 }
 
 const processors: EventProcessor[] = [
-  runChallengeProcessor,
-  runXpProcessor,
-  runTitleProcessor,
   runSecretProcessor,
   runNotificationProcessor,
   runAnalyticsProcessor,
