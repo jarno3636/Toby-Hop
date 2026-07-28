@@ -46,7 +46,10 @@ function isPondJournal(value: unknown): value is PondJournal {
     typeof journal.totalDiscoveryXp === 'number' &&
     Array.isArray(journal.recentFinds) &&
     Array.isArray(journal.recentEntries) &&
-    Array.isArray(journal.recentSecrets)
+    Array.isArray(journal.recentSecrets) &&
+    Array.isArray(journal.communityDiscoveries) &&
+    typeof journal.notificationHealth === 'object' &&
+    journal.notificationHealth !== null
   );
 }
 
@@ -59,6 +62,9 @@ const EMPTY_JOURNAL: PondJournal = {
   recentFinds: [],
   recentEntries: [],
   recentSecrets: [],
+  conditions: null,
+  communityDiscoveries: [],
+  notificationHealth: { enabled: false, credentialsStored: false, status: 'unknown' },
 };
 
 function findSymbol(find: Pick<PondFind, 'visualKey' | 'rarity'>): string {
@@ -324,6 +330,47 @@ export function MePanel(props: Props) {
             </blockquote>
           </section>
 
+          {journal.conditions && (
+            <section className="journal-conditions-card">
+              <div className="journal-conditions-current">
+                <span className="journal-condition-emoji" aria-hidden="true">{journal.conditions.emoji}</span>
+                <div>
+                  <span>TODAY AT THE POND</span>
+                  <strong>{journal.conditions.name}</strong>
+                  <p>{journal.conditions.description}</p>
+                </div>
+              </div>
+              <div className="journal-condition-tags">
+                <span>{journal.conditions.weather}</span>
+                <span>{journal.conditions.season}</span>
+                <span>{journal.conditions.mood}</span>
+                <span>{journal.conditions.moonPhase.replaceAll('-', ' ')}</span>
+              </div>
+              <div className="journal-forecast-line">
+                <span>{journal.conditions.forecastEmoji}</span>
+                <div>
+                  <small>TOMORROW</small>
+                  <strong>{journal.conditions.forecastName}</strong>
+                  <p>{journal.conditions.forecastHint}</p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {journal.notificationHealth.status === 'missing_credentials' && (
+            <div className="journal-notification-health warning">
+              <strong>Notification access needs refreshing</strong>
+              <p>Farcaster reports notifications as enabled, but Toby Hop does not have a current delivery token for this profile. Removing and re-adding the Mini App refreshes it.</p>
+            </div>
+          )}
+
+          {journal.notificationHealth.status === 'disabled' && isFarcasterMiniApp && (
+            <div className="journal-notification-health">
+              <strong>Pond alerts are off</strong>
+              <p>Rare weather and visitor alerts will not reach this profile until notifications are enabled in Farcaster.</p>
+            </div>
+          )}
+
           {!hasHopped && (
             <div className="empty-state-card journal-first-hop">
               <strong>Your first entry is waiting</strong>
@@ -425,6 +472,25 @@ export function MePanel(props: Props) {
               </div>
             )}
           </section>
+
+          {journal.communityDiscoveries.length > 0 && (
+            <section className="journal-section">
+              <div className="journal-section-heading">
+                <div>
+                  <span>COMMUNITY SIGHTINGS</span>
+                  <strong>What travelers spotted today</strong>
+                </div>
+              </div>
+              <div className="journal-community-list">
+                {journal.communityDiscoveries.map((discovery) => (
+                  <article key={discovery.key}>
+                    <span aria-hidden="true">{findSymbol(discovery)}</span>
+                    <div><strong>{discovery.name}</strong><small>Seen by {discovery.travelers} {discovery.travelers === 1 ? 'traveler' : 'travelers'}</small></div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           {journal.recentSecrets.length > 0 && (
             <section className="journal-section">

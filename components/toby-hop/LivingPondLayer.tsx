@@ -264,6 +264,31 @@ export function LivingPondLayer({
       {activeEvent.id === 'heron-shadow' && (
         <span className="living-heron-shadow" />
       )}
+
+
+      {activeEvent.id === 'fog-lantern' && (
+        <span className="living-fog-lantern"><i /></span>
+      )}
+
+      {activeEvent.id === 'tadpole-ring' && (
+        <span className="living-tadpole-ring"><i /><i /><i /></span>
+      )}
+
+      {activeEvent.id === 'acorn-drop' && (
+        <span className="living-acorn-drop">●</span>
+      )}
+
+      {activeEvent.id === 'goose-crossing' && (
+        <span className="living-goose-crossing">⌄⌄⌄</span>
+      )}
+
+      {activeEvent.id === 'moon-lotus' && (
+        <span className="living-moon-lotus">✿</span>
+      )}
+
+      {activeEvent.id === 'pond-whisper' && (
+        <span className="living-pond-whisper">the pond remembers</span>
+      )}
     </div>
   );
 }
