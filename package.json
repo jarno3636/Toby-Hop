@@ -9,8 +9,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "audit": "node scripts/audit-repo.mjs"
   },
   "dependencies": {
     "@farcaster/miniapp-node": "^0.2.0",

@@ -22,7 +22,7 @@ A mobile-first Farcaster Mini App on Base. Each verified daily hop exchanges exa
 ## Required setup
 
 1. Create a Supabase project.
-2. Run `supabase/migrations/001_toby_hop.sql` in the SQL editor.
+2. Export and commit the production Supabase schema/migrations before treating a fresh clone as deployable. The current source expects the tables listed in `docs/V1_AUDIT_REPORT.md`.
 3. Copy `.env.example` to `.env.local`.
 4. Add your Supabase values.
 5. Confirm the official Base `$TOBY` contract address: `0xb8D98a102b0079B69FFbc760C8d857A31653e56e`.
@@ -57,4 +57,9 @@ The user pays the swap and receives `$TOBY` directly in their wallet. Toby Hop n
 
 `vercel.json` runs the reminder endpoint at 22:00 UTC daily. Change that schedule to match the community's preferred reminder window. The endpoint skips users who already hopped on the current UTC day and requires Vercel's `CRON_SECRET` authorization.
 
-The webhook route currently stores and normalizes notification details. Before public launch, validate incoming webhook signatures against the current Farcaster specification; do not treat an unsigned webhook as authoritative in production.
+The webhook route verifies signed Farcaster events with `parseWebhookEvent()` before storing notification details.
+
+
+## v1.0 audit
+
+See `docs/V1_AUDIT_REPORT.md`, `docs/DEPENDENCY_MAP.md`, and `docs/DELETION_MANIFEST.md`. Run `npm run audit` to catch missing internal imports, broken internal API references, and unfinished TODO/stub source files.
