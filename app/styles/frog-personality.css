@@ -1,4 +1,4 @@
-/* Toby's expression cues are applied briefly by React, never looped. */
+/* Toby expression cues. Specific selectors intentionally override the resting idle animation. */
 .frog .eye::before {
   content: '';
   position: absolute;
@@ -10,34 +10,83 @@
   transform-origin: center top;
 }
 
-.frog-blink .eye::before { animation: frogBlinkOnce .34s ease-in-out 1 both; }
-.frog-double-blink .eye::before { animation: frogBlinkTwice .8s ease-in-out 1 both; }
-.frog-glance-left .eye::after { transform: translateX(-7px); transition: transform .24s ease; }
-.frog-glance-right .eye::after { transform: translateX(7px); transition: transform .24s ease; }
-.frog-look-up .eye::after { transform: translateY(-6px); transition: transform .24s ease; }
-.frog-curious { transform: rotate(2deg) translateY(-2px); }
-.frog-sleepy .eye::before { transform: scaleY(.62); }
-.frog-smile .mouth { height: 18px; border-bottom-width: 4px; transform: translateY(-2px) scaleX(1.18); }
-.frog-smile .cheek { opacity: .9; transform: scale(1.15); }
+.frog.frog-blink .eye::before { animation: frogBlinkOnce .34s ease-in-out 1 both; }
+.frog.frog-double-blink .eye::before { animation: frogBlinkTwice .8s ease-in-out 1 both; }
+.frog.frog-glance-left .eye::after { transform: translateX(-10px); transition: transform .18s ease; }
+.frog.frog-glance-right .eye::after { transform: translateX(10px); transition: transform .18s ease; }
+.frog.frog-look-up .eye::after { transform: translateY(-8px); transition: transform .18s ease; }
+.frog.frog-sleepy .eye::before { transform: scaleY(.62); }
+.frog.frog-smile .mouth { height: 20px; border-bottom-width: 4px; transform: translateY(-3px) scaleX(1.28); }
+.frog.frog-smile .cheek { opacity: 1; transform: scale(1.28); }
 
-@keyframes frogBlinkOnce { 0%,100%{transform:scaleY(0)} 48%,58%{transform:scaleY(1)} }
+@keyframes frogBlinkOnce { 0%,100%{transform:scaleY(0)} 42%,62%{transform:scaleY(1)} }
 @keyframes frogBlinkTwice { 0%,18%,38%,58%,100%{transform:scaleY(0)} 10%,29%,49%{transform:scaleY(1)} }
 
-/* Companion interactions stay subtle and never interrupt the daily hop. */
-.frog-interacting {
-  animation: frogCompanionBounce .62s cubic-bezier(.2,.8,.2,1) 1 both;
+.frog.frog-interacting {
+  animation: frogCompanionBounce .72s cubic-bezier(.18,.88,.25,1.15) 1 both !important;
 }
 
-.frog-button:not(:disabled)[aria-label*='say hello'] .frog-resting {
-  cursor: pointer;
+.frog.frog-interacting.frog-curious {
+  animation: frogCuriousReaction .8s ease-in-out 1 both !important;
 }
+
+.frog-button:not(:disabled)[aria-label*='say hello'] .frog-resting { cursor: pointer; }
+
+.frog-reaction-bubble {
+  position: absolute;
+  z-index: 12;
+  top: -34px;
+  right: -20px;
+  min-width: 38px;
+  padding: 8px 10px;
+  border: 1px solid rgba(190,255,241,.35);
+  border-radius: 16px 16px 16px 5px;
+  background: rgba(4,29,33,.9);
+  color: #eafff9;
+  box-shadow: 0 10px 28px rgba(0,0,0,.25);
+  font: 700 13px/1 system-ui, sans-serif;
+  text-align: center;
+  animation: frogBubbleIn .28s ease-out both;
+}
+
+.frog-companion-splash {
+  position: absolute;
+  z-index: 1;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(158,246,231,.75);
+  border-radius: 50%;
+  opacity: 0;
+  animation: frogSplash .65s ease-out both;
+}
+.frog-companion-splash.splash-left { left: 8px; }
+.frog-companion-splash.splash-right { right: 8px; animation-delay: .06s; }
 
 @keyframes frogCompanionBounce {
-  0%, 100% { transform: translateY(0) scale(1); }
-  38% { transform: translateY(-9px) scale(1.025,.98); }
-  68% { transform: translateY(1px) scale(.99,1.015); }
+  0%,100% { transform: translateY(0) scale(1); }
+  24% { transform: translateY(5px) scale(1.06,.9); }
+  52% { transform: translateY(-20px) scale(.96,1.07); }
+  76% { transform: translateY(1px) scale(1.03,.97); }
+}
+@keyframes frogCuriousReaction {
+  0%,100% { transform: rotate(0) translateY(0); }
+  30% { transform: rotate(-7deg) translateY(-6px); }
+  66% { transform: rotate(6deg) translateY(-9px); }
+}
+@keyframes frogBubbleIn {
+  from { opacity:0; transform: translateY(8px) scale(.8); }
+  to { opacity:1; transform: translateY(0) scale(1); }
+}
+@keyframes frogSplash {
+  0% { opacity:0; transform: translateY(0) scale(.35); }
+  28% { opacity:1; }
+  100% { opacity:0; transform: translateY(-22px) scale(1.5); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .frog-interacting { animation: none; }
+  .frog.frog-interacting,
+  .frog.frog-interacting.frog-curious,
+  .frog-companion-splash,
+  .frog-reaction-bubble { animation: none !important; }
 }
