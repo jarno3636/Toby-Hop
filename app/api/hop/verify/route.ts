@@ -50,6 +50,10 @@ import {
   processHopEncounter,
 } from '@/lib/toby-core/pond/process-hop-encounter';
 
+import {
+  getTodaysPond,
+} from '@/lib/todays-pond';
+
 import type {
   PondEncounterResult,
   PondEncounterRow,
@@ -1313,6 +1317,9 @@ export async function POST(
         resolved, allowing processors to react to its key, category,
         and rarity later.
       */
+      const pond =
+        getTodaysPond(new Date());
+
       await processEvent({
         type:
           'hop_completed',
@@ -1386,6 +1393,18 @@ export async function POST(
             encounter
               ?.rewardXp ??
             0,
+
+          pondTheme:
+            pond.id,
+
+          pondName:
+            pond.name,
+
+          moonPhase:
+            pond.moonPhase,
+
+          goldenTobyDay:
+            pond.goldenToby,
         },
       });
     } else {
