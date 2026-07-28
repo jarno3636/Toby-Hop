@@ -28,6 +28,7 @@ export type TobyEventType =
   | 'patch_unlocked'
   | 'golden_toby'
   | 'rainbow_pond'
+  | 'seasonal_event'
   | 'daily_login'
   | 'daily_rite_completed'
   | 'atlas_opened'
