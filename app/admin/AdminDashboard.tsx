@@ -1,22 +1,48 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { sdk } from "@farcaster/miniapp-sdk";
+
+type Delivery = {
+  notification_id: string;
+  notification_type: string;
+  status: string;
+  title: string;
+  body: string;
+  target_url: string;
+  attempted_at: string | null;
+  delivered_at: string | null;
+  created_at: string;
+  error_message: string | null;
+  provider_response: unknown;
+};
+
+type CronRun = {
+  id: string;
+  job_name: string;
+  source: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  candidates: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  duplicate_count: number;
+  error_message: string | null;
+};
 
 type AdminStatus = {
   success: true;
   adminFid: number;
-
   environment: {
     appUrl: string | null;
     webhookUrl: string | null;
     audience: string | null;
+    cronSecretConfigured: boolean;
+    cronPath: string;
+    cronSchedule: string;
   };
-
   notificationUser: {
     fid: number;
     enabled: boolean;
@@ -26,29 +52,17 @@ type AdminStatus = {
     hasNotificationToken: boolean;
     updatedAt: string | null;
   } | null;
-
   enabledUserCount: number;
-
   lastWebhook: {
     event_type: string;
     processed: boolean;
     processing_error: string | null;
     received_at: string;
   } | null;
-
-  lastDelivery: {
-    notification_id: string;
-    notification_type: string;
-    status: string;
-    title: string;
-    body: string;
-    target_url: string;
-    attempted_at: string | null;
-    delivered_at: string | null;
-    created_at: string;
-    error_message: string | null;
-    provider_response: unknown;
-  } | null;
+  lastDelivery: Delivery | null;
+  recentDeliveries: Delivery[];
+  lastCronRun: CronRun | null;
+  cronLoggingReady: boolean;
 };
 
 type FailedResponse = {
@@ -58,286 +72,182 @@ type FailedResponse = {
   status?: string;
 };
 
+type TestKind =
+  | "daily"
+  | "rare"
+  | "secret"
+  | "golden"
+  | "rainbow"
+  | "starfall"
+  | "streak7"
+  | "streak30"
+  | "streak100"
+  | "streak365";
+
 type TestResult = {
   success: boolean;
   status: string;
+  kind?: TestKind;
   notificationId?: string;
   httpStatus?: number;
   latencyMs?: number;
   error?: string;
 };
 
-type ToggleSetting = {
-  enabled: boolean;
+type CronRunResult = {
+  success: boolean;
+  runId?: string | null;
+  source?: string;
+  startedAt?: string;
+  completedAt?: string;
+  pondDate?: string;
+  candidates?: number;
+  sent?: number;
+  failed?: number;
+  skipped?: number;
+  duplicate?: number;
+  error?: string;
 };
 
-type ChanceSetting = {
-  enabled: boolean;
-  chance: number;
-};
-
+type ToggleSetting = { enabled: boolean };
+type ChanceSetting = { enabled: boolean; chance: number };
 type TobyHopSettings = {
   hop_cost: number;
-
   golden_toby: ChanceSetting;
-
   rainbow_pond: ChanceSetting;
-
   weather: ToggleSetting;
-
   leaderboard: ToggleSetting;
-
   maintenance: ToggleSetting;
 };
+type SettingsResponse = { ok: true; settings: TobyHopSettings };
 
-type SettingsResponse = {
-  ok: true;
-  settings: TobyHopSettings;
+type TestOption = {
+  kind: TestKind;
+  label: string;
+  description: string;
+  icon: string;
 };
 
-function formatDate(
-  value: string | null | undefined,
-): string {
-  if (!value) {
-    return "Never";
-  }
+const TEST_OPTIONS: TestOption[] = [
+  { kind: "daily", label: "Daily reminder", description: "Standard return-to-pond reminder.", icon: "🐸" },
+  { kind: "rare", label: "Rare discovery", description: "First-time rare journal find.", icon: "✨" },
+  { kind: "secret", label: "Secret discovery", description: "Hidden Traveler's Journal discovery.", icon: "◈" },
+  { kind: "golden", label: "Golden Toby", description: "Legendary pond event alert.", icon: "⭐" },
+  { kind: "rainbow", label: "Rainbow Pond", description: "Special daily pond condition.", icon: "🌈" },
+  { kind: "starfall", label: "Starfall", description: "Rare seasonal sky event.", icon: "✦" },
+  { kind: "streak7", label: "7-day streak", description: "Early streak milestone reminder.", icon: "🔥" },
+  { kind: "streak30", label: "30-day streak", description: "Monthly streak milestone reminder.", icon: "🔥" },
+  { kind: "streak100", label: "100-day streak", description: "Long-term return milestone.", icon: "🏆" },
+  { kind: "streak365", label: "365-day streak", description: "Full-year journey milestone.", icon: "👑" },
+];
 
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "Never";
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function formatPercent(
-  decimal: number | null | undefined,
-): string {
-  if (
-    typeof decimal !== "number" ||
-    !Number.isFinite(decimal)
-  ) {
-    return "—";
-  }
-
+function formatPercent(decimal: number | null | undefined): string {
+  if (typeof decimal !== "number" || !Number.isFinite(decimal)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "percent",
-    minimumFractionDigits:
-      decimal > 0 && decimal < 0.001
-        ? 3
-        : decimal < 0.01
-          ? 2
-          : 1,
+    minimumFractionDigits: decimal > 0 && decimal < 0.001 ? 3 : decimal < 0.01 ? 2 : 1,
     maximumFractionDigits: 4,
   }).format(decimal);
 }
 
-function formatHopCost(
-  value: number | null | undefined,
-): string {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    return "—";
-  }
-
-  return `${value} USDC`;
+function formatHopCost(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value} USDC` : "—";
 }
 
-function statusTone(
-  successful: boolean,
-): string {
-  return successful
-    ? "status statusGood"
-    : "status statusBad";
+function statusTone(successful: boolean): string {
+  return successful ? "status statusGood" : "status statusBad";
 }
 
-async function readJson<T>(
-  response: Response,
-): Promise<T> {
+function deliveryGood(status: string | null | undefined): boolean {
+  return status === "sent" || status === "delivered" || status === "completed";
+}
+
+async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-
-  if (!text) {
-    throw new Error(
-      `Request failed with HTTP ${response.status}.`,
-    );
-  }
-
+  if (!text) throw new Error(`Request failed with HTTP ${response.status}.`);
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(
-      "The server returned an invalid response.",
-    );
+    throw new Error("The server returned an invalid response.");
   }
 }
 
 export function AdminDashboard() {
-  const [status, setStatus] =
-    useState<AdminStatus | null>(null);
+  const [status, setStatus] = useState<AdminStatus | null>(null);
+  const [settings, setSettings] = useState<TobyHopSettings | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sendingKind, setSendingKind] = useState<TestKind | null>(null);
+  const [runningCron, setRunningCron] = useState(false);
+  const [testingSettings, setTestingSettings] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [cronResult, setCronResult] = useState<CronRunResult | null>(null);
+  const [settingsTestedAt, setSettingsTestedAt] = useState<Date | null>(null);
 
-  const [settings, setSettings] =
-    useState<TobyHopSettings | null>(null);
-
-  const [checking, setChecking] =
-    useState(true);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [sending, setSending] =
-    useState(false);
-
-  const [testingSettings, setTestingSettings] =
-    useState(false);
-
-  const [denied, setDenied] =
-    useState(false);
-
-  const [error, setError] =
-    useState<string | null>(null);
-
-  const [settingsError, setSettingsError] =
-    useState<string | null>(null);
-
-  const [testResult, setTestResult] =
-    useState<TestResult | null>(null);
-
-  const [settingsTestedAt, setSettingsTestedAt] =
-    useState<Date | null>(null);
-
-  const loadStatus = useCallback(
-    async (initial = false) => {
-      if (initial) {
-        setChecking(true);
-      } else {
-        setRefreshing(true);
+  const loadStatus = useCallback(async (initial = false) => {
+    initial ? setChecking(true) : setRefreshing(true);
+    setError(null);
+    try {
+      const response = await sdk.quickAuth.fetch("/api/admin/notifications/status", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (response.status === 404) {
+        setDenied(true);
+        setStatus(null);
+        return;
       }
-
-      setError(null);
-
-      try {
-        const response =
-          await sdk.quickAuth.fetch(
-            "/api/admin/notifications/status",
-            {
-              method: "GET",
-              headers: {
-                Accept: "application/json",
-              },
-              cache: "no-store",
-            },
-          );
-
-        if (response.status === 404) {
-          setDenied(true);
-          setStatus(null);
-          return;
-        }
-
-        const payload =
-          await readJson<
-            AdminStatus | FailedResponse
-          >(response);
-
-        if (
-          !response.ok ||
-          !("success" in payload) ||
-          payload.success !== true
-        ) {
-          throw new Error(
-            "error" in payload &&
-              payload.error
-              ? payload.error
-              : "Failed to load admin status.",
-          );
-        }
-
-        setDenied(false);
-        setStatus(payload);
-      } catch (cause) {
-        console.error(
-          "Admin status request failed.",
-          cause,
-        );
-
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "Failed to authenticate the admin page.",
-        );
-      } finally {
-        setChecking(false);
-        setRefreshing(false);
+      const payload = await readJson<AdminStatus | FailedResponse>(response);
+      if (!response.ok || !("success" in payload) || payload.success !== true) {
+        throw new Error("error" in payload && payload.error ? payload.error : "Failed to load admin status.");
       }
-    },
-    [],
-  );
+      setDenied(false);
+      setStatus(payload);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to authenticate the admin page.");
+    } finally {
+      setChecking(false);
+      setRefreshing(false);
+    }
+  }, []);
 
-  const loadSettings = useCallback(
-    async () => {
-      setTestingSettings(true);
-      setSettingsError(null);
-
-      try {
-        const response =
-          await sdk.quickAuth.fetch(
-            "/api/admin/toby-hop/settings/test",
-            {
-              method: "GET",
-              headers: {
-                Accept: "application/json",
-              },
-              cache: "no-store",
-            },
-          );
-
-        if (response.status === 404) {
-          setDenied(true);
-          setSettings(null);
-          return;
-        }
-
-        const payload =
-          await readJson<
-            SettingsResponse | FailedResponse
-          >(response);
-
-        if (
-          !response.ok ||
-          !("ok" in payload) ||
-          payload.ok !== true
-        ) {
-          throw new Error(
-            "error" in payload &&
-              payload.error
-              ? payload.error
-              : "Failed to load Toby Hop settings.",
-          );
-        }
-
-        setDenied(false);
-        setSettings(payload.settings);
-        setSettingsTestedAt(new Date());
-      } catch (cause) {
-        console.error(
-          "Toby Hop settings request failed.",
-          cause,
-        );
-
-        setSettingsError(
-          cause instanceof Error
-            ? cause.message
-            : "Failed to load Toby Hop settings.",
-        );
-      } finally {
-        setTestingSettings(false);
+  const loadSettings = useCallback(async () => {
+    setTestingSettings(true);
+    setSettingsError(null);
+    try {
+      const response = await sdk.quickAuth.fetch("/api/admin/toby-hop/settings/test", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (response.status === 404) {
+        setDenied(true);
+        setSettings(null);
+        return;
       }
-    },
-    [],
-  );
+      const payload = await readJson<SettingsResponse | FailedResponse>(response);
+      if (!response.ok || !("ok" in payload) || payload.ok !== true) {
+        throw new Error("error" in payload && payload.error ? payload.error : "Failed to load Toby Hop settings.");
+      }
+      setDenied(false);
+      setSettings(payload.settings);
+      setSettingsTestedAt(new Date());
+    } catch (cause) {
+      setSettingsError(cause instanceof Error ? cause.message : "Failed to load Toby Hop settings.");
+    } finally {
+      setTestingSettings(false);
+    }
+  }, []);
 
   useEffect(() => {
     void loadStatus(true);
@@ -345,928 +255,227 @@ export function AdminDashboard() {
 
   async function refreshEverything() {
     setRefreshing(true);
-
-    await Promise.all([
-      loadStatus(false),
-      loadSettings(),
-    ]);
-
+    await Promise.all([loadStatus(false), loadSettings()]);
     setRefreshing(false);
   }
 
-  async function sendTestNotification() {
-    setSending(true);
+  async function sendTestNotification(kind: TestKind) {
+    setSendingKind(kind);
     setError(null);
     setTestResult(null);
-
     try {
-      const response =
-        await sdk.quickAuth.fetch(
-          "/api/admin/notifications/send-test",
-          {
-            method: "POST",
-            headers: {
-              Accept: "application/json",
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({}),
-            cache: "no-store",
-          },
-        );
-
+      const response = await sdk.quickAuth.fetch("/api/admin/notifications/send-test", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ kind }),
+        cache: "no-store",
+      });
       if (response.status === 404) {
         setDenied(true);
         setStatus(null);
         return;
       }
-
-      const payload =
-        await readJson<TestResult>(response);
-
+      const payload = await readJson<TestResult>(response);
       setTestResult(payload);
-
-      if (
-        !response.ok ||
-        !payload.success
-      ) {
-        throw new Error(
-          payload.error ??
-            "The test notification failed.",
-        );
-      }
-
+      if (!response.ok || !payload.success) throw new Error(payload.error ?? "The test notification failed.");
       await loadStatus(false);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The test notification failed.",
-      );
+      setError(cause instanceof Error ? cause.message : "The test notification failed.");
     } finally {
-      setSending(false);
+      setSendingKind(null);
     }
   }
 
+  async function runReminderCronNow() {
+    setRunningCron(true);
+    setError(null);
+    setCronResult(null);
+    try {
+      const response = await sdk.quickAuth.fetch("/api/admin/notifications/run-reminders", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (response.status === 404) {
+        setDenied(true);
+        setStatus(null);
+        return;
+      }
+      const payload = await readJson<CronRunResult>(response);
+      setCronResult(payload);
+      if (!response.ok || !payload.success) throw new Error(payload.error ?? "The reminder run failed.");
+      await loadStatus(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The reminder run failed.");
+    } finally {
+      setRunningCron(false);
+    }
+  }
+
+  const nextCronText = useMemo(() => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(22, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    return next.toLocaleString();
+  }, [status?.lastCronRun?.started_at]);
+
   if (checking) {
-    return (
-      <main className="gateScreen">
-        <div className="gateMark">◉</div>
-
-        <p>Checking pond credentials…</p>
-
-        <style jsx>{`
-          .gateScreen {
-            display: grid;
-            min-height: 100vh;
-            place-content: center;
-            gap: 14px;
-            color: #c7d8ce;
-            text-align: center;
-            background:
-              radial-gradient(
-                circle at 50% 20%,
-                rgba(67, 133, 112, 0.24),
-                transparent 40%
-              ),
-              #07110f;
-          }
-
-          .gateMark {
-            font-size: 2rem;
-            animation: pulse 1.5s ease-in-out
-              infinite;
-          }
-
-          p {
-            margin: 0;
-          }
-
-          @keyframes pulse {
-            50% {
-              opacity: 0.35;
-              transform: scale(0.9);
-            }
-          }
-        `}</style>
-      </main>
-    );
+    return <main className="gateScreen"><div className="gateMark">◉</div><p>Checking pond credentials…</p><style jsx>{gateCss}</style></main>;
   }
 
   if (denied) {
-    return (
-      <main className="notFound">
-        <h1>404</h1>
-
-        <p>Page not found.</p>
-
-        <style jsx>{`
-          .notFound {
-            display: grid;
-            min-height: 100vh;
-            place-content: center;
-            color: #edf3ed;
-            text-align: center;
-            background: #07110f;
-          }
-
-          h1 {
-            margin: 0;
-            font-size: 4rem;
-          }
-
-          p {
-            color: #91a39a;
-          }
-        `}</style>
-      </main>
-    );
+    return <main className="notFound"><h1>404</h1><p>Page not found.</p><style jsx>{notFoundCss}</style></main>;
   }
 
-  const notificationUser =
-    status?.notificationUser;
-
+  const notificationUser = status?.notificationUser;
   const credentialsReady = Boolean(
-    notificationUser?.enabled &&
-      notificationUser.hasNotificationUrl &&
-      notificationUser.hasNotificationToken,
+    notificationUser?.enabled && notificationUser.hasNotificationUrl && notificationUser.hasNotificationToken,
   );
-
   const settingsHealthy = Boolean(settings);
-
-  const maintenanceEnabled =
-    settings?.maintenance.enabled ?? false;
+  const maintenanceEnabled = settings?.maintenance.enabled ?? false;
+  const cronConfigured = Boolean(status?.environment.cronSecretConfigured);
+  const lastCron = status?.lastCronRun;
 
   return (
     <main className="adminShell">
       <section className="hero">
-        <p className="eyebrow">
-          PRIVATE CONTROL ROOM
-        </p>
-
+        <p className="eyebrow">PRIVATE CONTROL ROOM</p>
         <h1>Toby Hop Operations</h1>
-
-        <p className="heroCopy">
-          Notification credentials, webhook health,
-          delivery results, database settings, and
-          manual testing for FID{" "}
-          {status?.adminFid}.
-        </p>
+        <p className="heroCopy">Test every notification, verify scheduled reminder runs, inspect recent deliveries, and confirm production configuration for FID {status?.adminFid}.</p>
       </section>
 
       <section className="actions">
-        <button
-          type="button"
-          className="primaryButton"
-          disabled={
-            sending ||
-            refreshing ||
-            testingSettings ||
-            !credentialsReady
-          }
-          onClick={() =>
-            void sendTestNotification()
-          }
-        >
-          {sending
-            ? "Sending…"
-            : "Send Test Notification"}
+        <button className="primaryButton" disabled={refreshing || testingSettings || runningCron || Boolean(sendingKind)} onClick={() => void refreshEverything()}>
+          {refreshing ? "Refreshing…" : "Refresh Everything"}
         </button>
-
-        <button
-          type="button"
-          className="secondaryButton"
-          disabled={
-            refreshing ||
-            sending ||
-            testingSettings
-          }
-          onClick={() =>
-            void loadSettings()
-          }
-        >
-          {testingSettings
-            ? "Testing Settings…"
-            : "Test Settings"}
-        </button>
-
-        <button
-          type="button"
-          className="secondaryButton"
-          disabled={
-            refreshing ||
-            sending ||
-            testingSettings
-          }
-          onClick={() =>
-            void refreshEverything()
-          }
-        >
-          {refreshing
-            ? "Refreshing…"
-            : "Refresh Everything"}
+        <button className="secondaryButton" disabled={refreshing || testingSettings || runningCron || Boolean(sendingKind)} onClick={() => void loadSettings()}>
+          {testingSettings ? "Testing Settings…" : "Test Settings"}
         </button>
       </section>
 
-      {error ? (
-        <div className="errorBox">
-          {error}
-        </div>
-      ) : null}
-
-      {settingsError ? (
-        <div className="errorBox">
-          <strong>
-            Settings test failed.
-          </strong>{" "}
-          {settingsError}
-        </div>
-      ) : null}
-
-      {testResult?.success ? (
-        <div className="successBox">
-          <strong>
-            Notification sent.
-          </strong>
-
-          {testResult.httpStatus
-            ? ` HTTP ${testResult.httpStatus}.`
-            : ""}
-
-          {typeof testResult.latencyMs ===
-          "number"
-            ? ` ${testResult.latencyMs} ms.`
-            : ""}
-        </div>
-      ) : null}
-
-      {settingsHealthy ? (
-        <div className="successBox">
-          <strong>
-            Settings loaded successfully.
-          </strong>{" "}
-
-          The app is reading configuration from
-          Supabase.
-
-          {settingsTestedAt
-            ? ` Tested ${settingsTestedAt.toLocaleString()}.`
-            : ""}
-        </div>
-      ) : null}
-
-      {!credentialsReady ? (
-        <div className="warningBox">
-          Test sending is disabled until your
-          Farcaster notification URL and token
-          have been received and notifications
-          are enabled.
-        </div>
-      ) : null}
-
-      {maintenanceEnabled ? (
-        <div className="criticalBox">
-          <strong>
-            Maintenance mode is enabled.
-          </strong>{" "}
-
-          This does not affect gameplay until the
-          setting is wired into your app routes.
-        </div>
-      ) : null}
+      {error ? <div className="errorBox">{error}</div> : null}
+      {settingsError ? <div className="errorBox"><strong>Settings test failed.</strong> {settingsError}</div> : null}
+      {testResult?.success ? <div className="successBox"><strong>{testResult.kind} notification sent.</strong>{testResult.httpStatus ? ` HTTP ${testResult.httpStatus}.` : ""}{typeof testResult.latencyMs === "number" ? ` ${testResult.latencyMs} ms.` : ""}</div> : null}
+      {cronResult?.success ? <div className="successBox"><strong>Reminder job completed.</strong> Candidates {cronResult.candidates ?? 0}, sent {cronResult.sent ?? 0}, failed {cronResult.failed ?? 0}, skipped {cronResult.skipped ?? 0}, duplicates {cronResult.duplicate ?? 0}.</div> : null}
+      {!credentialsReady ? <div className="warningBox">Notification testing is disabled until your Farcaster notification URL and token are saved and notifications are enabled.</div> : null}
+      {!status?.cronLoggingReady ? <div className="warningBox"><strong>Cron logging table not found.</strong> Run the included Supabase migration before relying on cron history.</div> : null}
+      {maintenanceEnabled ? <div className="criticalBox"><strong>Maintenance mode is enabled.</strong> This only affects gameplay after the setting is wired into app routes.</div> : null}
 
       <section className="grid">
+        <article className="card wideCard cronCard">
+          <div className="cardHeader">
+            <div><p className="eyebrow">SCHEDULED DELIVERY</p><h2>Daily reminder cron</h2></div>
+            <span className={statusTone(cronConfigured && lastCron?.status !== "failed")}>{!cronConfigured ? "Missing secret" : lastCron?.status ?? "Ready"}</span>
+          </div>
+          <div className="cronSummary">
+            <div><span>Schedule</span><strong>Daily at 22:00 UTC</strong></div>
+            <div><span>Next expected run</span><strong>{nextCronText}</strong></div>
+            <div><span>Last run</span><strong>{formatDate(lastCron?.started_at)}</strong></div>
+            <div><span>Source</span><strong>{lastCron?.source ?? "No logged run"}</strong></div>
+          </div>
+          <div className="cronMetrics">
+            <div><strong>{lastCron?.candidates ?? 0}</strong><span>Candidates</span></div>
+            <div><strong>{lastCron?.sent ?? 0}</strong><span>Sent</span></div>
+            <div><strong>{lastCron?.failed ?? 0}</strong><span>Failed</span></div>
+            <div><strong>{lastCron?.skipped ?? 0}</strong><span>Skipped</span></div>
+            <div><strong>{lastCron?.duplicate_count ?? 0}</strong><span>Duplicates</span></div>
+          </div>
+          {lastCron?.error_message ? <div className="inlineError">{lastCron.error_message}</div> : null}
+          <button className="primaryButton runButton" disabled={runningCron || Boolean(sendingKind) || !status?.cronLoggingReady} onClick={() => void runReminderCronNow()}>
+            {runningCron ? "Running Same Reminder Job…" : "Run Reminder Job Now"}
+          </button>
+          <p className="finePrint">This button uses the same shared reminder function as Vercel Cron. A successful manual run proves the selection, delivery, deduplication, and logging path. A future row with source <code>vercel_cron</code> proves Vercel invoked it automatically.</p>
+        </article>
+
+        <article className="card wideCard">
+          <div className="cardHeader"><div><p className="eyebrow">NOTIFICATION CENTER</p><h2>Send a test to your FID</h2></div><span className={statusTone(credentialsReady)}>{credentialsReady ? "Ready" : "Unavailable"}</span></div>
+          <div className="testGrid">
+            {TEST_OPTIONS.map((option) => (
+              <button key={option.kind} className="testButton" disabled={!credentialsReady || Boolean(sendingKind) || runningCron} onClick={() => void sendTestNotification(option.kind)}>
+                <span className="testIcon">{option.icon}</span>
+                <span><strong>{sendingKind === option.kind ? "Sending…" : option.label}</strong><small>{option.description}</small></span>
+              </button>
+            ))}
+          </div>
+        </article>
+
         <article className="card settingsCard">
-          <div className="cardHeader">
-            <div>
-              <p className="eyebrow">
-                DATABASE SETTINGS
-              </p>
-
-              <h2>Toby Hop configuration</h2>
-            </div>
-
-            <span
-              className={statusTone(
-                settingsHealthy,
-              )}
-            >
-              {testingSettings
-                ? "Testing"
-                : settingsHealthy
-                  ? "Connected"
-                  : "Not tested"}
-            </span>
-          </div>
-
+          <div className="cardHeader"><div><p className="eyebrow">DATABASE SETTINGS</p><h2>Toby Hop configuration</h2></div><span className={statusTone(settingsHealthy)}>{testingSettings ? "Testing" : settingsHealthy ? "Connected" : "Not tested"}</span></div>
           <dl>
-            <div>
-              <dt>Hop cost</dt>
-
-              <dd>
-                {formatHopCost(
-                  settings?.hop_cost,
-                )}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Golden Toby</dt>
-
-              <dd>
-                {settings
-                  ? settings.golden_toby
-                      .enabled
-                    ? `Enabled · ${formatPercent(
-                        settings.golden_toby
-                          .chance,
-                      )}`
-                    : "Disabled"
-                  : "Not loaded"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Rainbow pond</dt>
-
-              <dd>
-                {settings
-                  ? settings.rainbow_pond
-                      .enabled
-                    ? `Enabled · ${formatPercent(
-                        settings.rainbow_pond
-                          .chance,
-                      )}`
-                    : "Disabled"
-                  : "Not loaded"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Weather</dt>
-
-              <dd>
-                {settings
-                  ? settings.weather.enabled
-                    ? "Enabled"
-                    : "Disabled"
-                  : "Not loaded"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Leaderboard</dt>
-
-              <dd>
-                {settings
-                  ? settings.leaderboard
-                      .enabled
-                    ? "Enabled"
-                    : "Disabled"
-                  : "Not loaded"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Maintenance</dt>
-
-              <dd>
-                {settings
-                  ? settings.maintenance
-                      .enabled
-                    ? "Enabled"
-                    : "Disabled"
-                  : "Not loaded"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Last test</dt>
-
-              <dd>
-                {settingsTestedAt
-                  ? settingsTestedAt.toLocaleString()
-                  : "Never"}
-              </dd>
-            </div>
+            <div><dt>Hop cost</dt><dd>{formatHopCost(settings?.hop_cost)}</dd></div>
+            <div><dt>Golden Toby</dt><dd>{settings ? settings.golden_toby.enabled ? `Enabled · ${formatPercent(settings.golden_toby.chance)}` : "Disabled" : "Not loaded"}</dd></div>
+            <div><dt>Rainbow pond</dt><dd>{settings ? settings.rainbow_pond.enabled ? `Enabled · ${formatPercent(settings.rainbow_pond.chance)}` : "Disabled" : "Not loaded"}</dd></div>
+            <div><dt>Weather</dt><dd>{settings ? settings.weather.enabled ? "Enabled" : "Disabled" : "Not loaded"}</dd></div>
+            <div><dt>Leaderboard</dt><dd>{settings ? settings.leaderboard.enabled ? "Enabled" : "Disabled" : "Not loaded"}</dd></div>
+            <div><dt>Maintenance</dt><dd>{settings ? settings.maintenance.enabled ? "Enabled" : "Disabled" : "Not loaded"}</dd></div>
+            <div><dt>Last test</dt><dd>{settingsTestedAt ? settingsTestedAt.toLocaleString() : "Never"}</dd></div>
           </dl>
         </article>
 
         <article className="card">
-          <div className="cardHeader">
-            <div>
-              <p className="eyebrow">
-                ADMIN ACCOUNT
-              </p>
-
-              <h2>Notification access</h2>
-            </div>
-
-            <span
-              className={statusTone(
-                Boolean(
-                  notificationUser?.enabled,
-                ),
-              )}
-            >
-              {notificationUser?.enabled
-                ? "Enabled"
-                : "Disabled"}
-            </span>
-          </div>
-
+          <div className="cardHeader"><div><p className="eyebrow">ADMIN ACCOUNT</p><h2>Notification access</h2></div><span className={statusTone(Boolean(notificationUser?.enabled))}>{notificationUser?.enabled ? "Enabled" : "Disabled"}</span></div>
           <dl>
-            <div>
-              <dt>FID</dt>
-
-              <dd>
-                {notificationUser?.fid ??
-                  status?.adminFid ??
-                  "—"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Notification URL</dt>
-
-              <dd>
-                {notificationUser
-                  ?.notificationUrl ??
-                  "Not received"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Token</dt>
-
-              <dd>
-                {notificationUser
-                  ?.tokenPreview ??
-                  "Not received"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Updated</dt>
-
-              <dd>
-                {formatDate(
-                  notificationUser?.updatedAt,
-                )}
-              </dd>
-            </div>
+            <div><dt>FID</dt><dd>{notificationUser?.fid ?? status?.adminFid ?? "—"}</dd></div>
+            <div><dt>Notification URL</dt><dd>{notificationUser?.notificationUrl ?? "Not received"}</dd></div>
+            <div><dt>Token</dt><dd>{notificationUser?.tokenPreview ?? "Not received"}</dd></div>
+            <div><dt>Updated</dt><dd>{formatDate(notificationUser?.updatedAt)}</dd></div>
           </dl>
         </article>
 
         <article className="card">
-          <div className="cardHeader">
-            <div>
-              <p className="eyebrow">
-                WEBHOOK
-              </p>
-
-              <h2>Last event</h2>
-            </div>
-
-            <span
-              className={statusTone(
-                Boolean(
-                  status?.lastWebhook
-                    ?.processed &&
-                    !status.lastWebhook
-                      .processing_error,
-                ),
-              )}
-            >
-              {status?.lastWebhook
-                ? status.lastWebhook
-                    .processing_error
-                  ? "Error"
-                  : "Processed"
-                : "Waiting"}
-            </span>
-          </div>
-
+          <div className="cardHeader"><div><p className="eyebrow">WEBHOOK</p><h2>Last event</h2></div><span className={statusTone(Boolean(status?.lastWebhook?.processed && !status.lastWebhook.processing_error))}>{status?.lastWebhook ? status.lastWebhook.processing_error ? "Error" : "Processed" : "Waiting"}</span></div>
           <dl>
-            <div>
-              <dt>Event type</dt>
-
-              <dd>
-                {status?.lastWebhook
-                  ?.event_type ??
-                  "No event"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Received</dt>
-
-              <dd>
-                {formatDate(
-                  status?.lastWebhook
-                    ?.received_at,
-                )}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Error</dt>
-
-              <dd>
-                {status?.lastWebhook
-                  ?.processing_error ??
-                  "None"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Webhook URL</dt>
-
-              <dd>
-                {status?.environment
-                  .webhookUrl ??
-                  "Not configured"}
-              </dd>
-            </div>
+            <div><dt>Event type</dt><dd>{status?.lastWebhook?.event_type ?? "No event"}</dd></div>
+            <div><dt>Received</dt><dd>{formatDate(status?.lastWebhook?.received_at)}</dd></div>
+            <div><dt>Error</dt><dd>{status?.lastWebhook?.processing_error ?? "None"}</dd></div>
+            <div><dt>Webhook URL</dt><dd>{status?.environment.webhookUrl ?? "Not configured"}</dd></div>
           </dl>
         </article>
 
-        <article className="card">
-          <div className="cardHeader">
-            <div>
-              <p className="eyebrow">
-                DELIVERY
-              </p>
-
-              <h2>Last attempt</h2>
-            </div>
-
-            <span
-              className={statusTone(
-                status?.lastDelivery
-                  ?.status === "sent" ||
-                  status?.lastDelivery
-                    ?.status ===
-                    "delivered",
-              )}
-            >
-              {status?.lastDelivery
-                ?.status ?? "None"}
-            </span>
+        <article className="card wideCard">
+          <div className="cardHeader"><div><p className="eyebrow">DELIVERY HISTORY</p><h2>Recent notification attempts</h2></div><span className={statusTone(Boolean(status?.recentDeliveries.length))}>{status?.recentDeliveries.length ?? 0} shown</span></div>
+          <div className="deliveryList">
+            {(status?.recentDeliveries ?? []).map((delivery) => (
+              <div className="deliveryRow" key={`${delivery.notification_id}-${delivery.created_at}`}>
+                <div><strong>{delivery.title}</strong><span>{delivery.notification_type} · {formatDate(delivery.attempted_at ?? delivery.created_at)}</span></div>
+                <span className={statusTone(deliveryGood(delivery.status))}>{delivery.status}</span>
+                <p>{delivery.error_message ?? delivery.body}</p>
+              </div>
+            ))}
+            {!status?.recentDeliveries.length ? <p className="emptyState">No notification deliveries have been logged yet.</p> : null}
           </div>
-
-          <dl>
-            <div>
-              <dt>Type</dt>
-
-              <dd>
-                {status?.lastDelivery
-                  ?.notification_type ??
-                  "No delivery"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Notification ID</dt>
-
-              <dd>
-                {status?.lastDelivery
-                  ?.notification_id ??
-                  "—"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Attempted</dt>
-
-              <dd>
-                {formatDate(
-                  status?.lastDelivery
-                    ?.attempted_at ??
-                    status?.lastDelivery
-                      ?.created_at,
-                )}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Error</dt>
-
-              <dd>
-                {status?.lastDelivery
-                  ?.error_message ??
-                  "None"}
-              </dd>
-            </div>
-          </dl>
         </article>
 
-        <article className="card">
-          <div className="cardHeader">
-            <div>
-              <p className="eyebrow">
-                SYSTEM
-              </p>
-
-              <h2>Configuration</h2>
-            </div>
-          </div>
-
+        <article className="card wideCard">
+          <div className="cardHeader"><div><p className="eyebrow">SYSTEM</p><h2>Production configuration</h2></div></div>
           <dl>
-            <div>
-              <dt>Enabled users</dt>
-
-              <dd>
-                {status?.enabledUserCount ??
-                  0}
-              </dd>
-            </div>
-
-            <div>
-              <dt>App URL</dt>
-
-              <dd>
-                {status?.environment
-                  .appUrl ??
-                  "Not configured"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>JWT audience</dt>
-
-              <dd>
-                {status?.environment
-                  .audience ??
-                  "Using app URL"}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Authorization</dt>
-
-              <dd>
-                Quick Auth · FID allowlist
-              </dd>
-            </div>
+            <div><dt>Enabled users</dt><dd>{status?.enabledUserCount ?? 0}</dd></div>
+            <div><dt>App URL</dt><dd>{status?.environment.appUrl ?? "Not configured"}</dd></div>
+            <div><dt>JWT audience</dt><dd>{status?.environment.audience ?? "Using app URL"}</dd></div>
+            <div><dt>CRON_SECRET</dt><dd>{cronConfigured ? "Configured" : "Missing"}</dd></div>
+            <div><dt>Cron path</dt><dd>{status?.environment.cronPath ?? "—"}</dd></div>
+            <div><dt>Cron expression</dt><dd>{status?.environment.cronSchedule ?? "—"}</dd></div>
+            <div><dt>Authorization</dt><dd>Quick Auth · FID allowlist</dd></div>
           </dl>
         </article>
       </section>
 
-      <style jsx>{`
-        .adminShell {
-          min-height: 100vh;
-          padding: 28px 18px 80px;
-          color: #f7f5e9;
-          background:
-            radial-gradient(
-              circle at 50% -10%,
-              rgba(76, 158, 133, 0.24),
-              transparent 42%
-            ),
-            linear-gradient(
-              180deg,
-              #071513 0%,
-              #08110f 100%
-            );
-        }
-
-        .hero,
-        .actions,
-        .grid,
-        .errorBox,
-        .successBox,
-        .warningBox,
-        .criticalBox {
-          width: min(100%, 960px);
-          margin-right: auto;
-          margin-left: auto;
-        }
-
-        .hero {
-          padding: 28px 0 20px;
-        }
-
-        .eyebrow {
-          margin: 0 0 8px;
-          color: #9ec6ae;
-          font-size: 0.72rem;
-          font-weight: 800;
-          letter-spacing: 0.16em;
-        }
-
-        h1,
-        h2,
-        p {
-          margin-top: 0;
-        }
-
-        h1 {
-          margin-bottom: 12px;
-          font-size: clamp(
-            2rem,
-            8vw,
-            4rem
-          );
-          line-height: 0.98;
-        }
-
-        h2 {
-          margin-bottom: 0;
-          font-size: 1.12rem;
-        }
-
-        .heroCopy {
-          max-width: 620px;
-          color: #b9c7bf;
-          line-height: 1.6;
-        }
-
-        .actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 18px;
-        }
-
-        button {
-          min-height: 48px;
-          padding: 0 18px;
-          border-radius: 14px;
-          font: inherit;
-          font-weight: 800;
-          cursor: pointer;
-        }
-
-        button:disabled {
-          cursor: not-allowed;
-          opacity: 0.45;
-        }
-
-        .primaryButton {
-          border: 1px solid #dceeb7;
-          color: #102017;
-          background: #dceeb7;
-        }
-
-        .secondaryButton {
-          border: 1px solid
-            rgba(255, 255, 255, 0.18);
-          color: #f7f5e9;
-          background:
-            rgba(255, 255, 255, 0.06);
-        }
-
-        .grid {
-          display: grid;
-          grid-template-columns:
-            repeat(2, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .card {
-          min-width: 0;
-          padding: 20px;
-          border: 1px solid
-            rgba(255, 255, 255, 0.09);
-          border-radius: 20px;
-          background:
-            rgba(13, 31, 27, 0.8);
-          box-shadow:
-            0 18px 50px
-            rgba(0, 0, 0, 0.22);
-        }
-
-        .settingsCard {
-          grid-column: 1 / -1;
-          border-color:
-            rgba(158, 198, 174, 0.2);
-          background:
-            linear-gradient(
-              145deg,
-              rgba(18, 48, 40, 0.92),
-              rgba(10, 29, 25, 0.9)
-            );
-        }
-
-        .cardHeader {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 16px;
-          margin-bottom: 18px;
-        }
-
-        .status {
-          flex: none;
-          padding: 6px 9px;
-          border-radius: 999px;
-          font-size: 0.72rem;
-          font-weight: 800;
-          text-transform: capitalize;
-        }
-
-        .statusGood {
-          color: #bff6ce;
-          background:
-            rgba(42, 154, 85, 0.18);
-        }
-
-        .statusBad {
-          color: #ffd5ca;
-          background:
-            rgba(195, 76, 48, 0.18);
-        }
-
-        dl {
-          margin: 0;
-        }
-
-        dl > div {
-          display: grid;
-          grid-template-columns:
-            minmax(110px, 0.7fr)
-            minmax(0, 1.3fr);
-          gap: 12px;
-          padding: 11px 0;
-          border-top: 1px solid
-            rgba(255, 255, 255, 0.07);
-        }
-
-        dt {
-          color: #8ea198;
-          font-size: 0.82rem;
-        }
-
-        dd {
-          min-width: 0;
-          margin: 0;
-          color: #f2f5ed;
-          font-size: 0.82rem;
-          overflow-wrap: anywhere;
-        }
-
-        .errorBox,
-        .successBox,
-        .warningBox,
-        .criticalBox {
-          box-sizing: border-box;
-          margin-bottom: 16px;
-          padding: 14px 16px;
-          border-radius: 14px;
-        }
-
-        .errorBox {
-          border: 1px solid
-            rgba(255, 115, 86, 0.35);
-          color: #ffd5ca;
-          background:
-            rgba(133, 44, 26, 0.25);
-        }
-
-        .successBox {
-          border: 1px solid
-            rgba(110, 218, 144, 0.32);
-          color: #c8f5d5;
-          background:
-            rgba(31, 113, 62, 0.25);
-        }
-
-        .warningBox {
-          border: 1px solid
-            rgba(238, 205, 108, 0.28);
-          color: #f5e6b5;
-          background:
-            rgba(115, 88, 23, 0.24);
-        }
-
-        .criticalBox {
-          border: 1px solid
-            rgba(255, 159, 83, 0.4);
-          color: #ffe2c2;
-          background:
-            rgba(151, 68, 17, 0.28);
-        }
-
-        @media (max-width: 720px) {
-          .grid {
-            grid-template-columns: 1fr;
-          }
-
-          .settingsCard {
-            grid-column: auto;
-          }
-
-          .actions button {
-            flex: 1 1 100%;
-          }
-
-          dl > div {
-            grid-template-columns: 1fr;
-            gap: 4px;
-          }
-        }
-      `}</style>
+      <style jsx>{styles}</style>
     </main>
   );
 }
+
+const gateCss = `
+  .gateScreen{display:grid;min-height:100vh;place-content:center;gap:14px;color:#c7d8ce;text-align:center;background:radial-gradient(circle at 50% 20%,rgba(67,133,112,.24),transparent 40%),#07110f}.gateMark{font-size:2rem;animation:pulse 1.5s ease-in-out infinite}p{margin:0}@keyframes pulse{50%{opacity:.35;transform:scale(.9)}}
+`;
+const notFoundCss = `.notFound{display:grid;min-height:100vh;place-content:center;color:#edf3ed;text-align:center;background:#07110f}h1{margin:0;font-size:4rem}p{color:#91a39a}`;
+const styles = `
+  .adminShell{min-height:100vh;padding:28px 18px 80px;color:#f7f5e9;background:radial-gradient(circle at 50% -10%,rgba(76,158,133,.24),transparent 42%),linear-gradient(180deg,#071513 0%,#08110f 100%)}
+  .hero,.actions,.grid,.errorBox,.successBox,.warningBox,.criticalBox{width:min(100%,960px);margin-right:auto;margin-left:auto}.hero{padding:28px 0 20px}.eyebrow{margin:0 0 8px;color:#9ec6ae;font-size:.72rem;font-weight:800;letter-spacing:.16em}h1,h2,p{margin-top:0}h1{margin-bottom:12px;font-size:clamp(2rem,8vw,4rem);line-height:.98}h2{margin-bottom:0;font-size:1.12rem}.heroCopy{max-width:680px;color:#b9c7bf;line-height:1.6}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px}button{min-height:48px;padding:0 18px;border-radius:14px;font:inherit;font-weight:800;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}.primaryButton{border:1px solid #dceeb7;color:#102017;background:#dceeb7}.secondaryButton{border:1px solid rgba(255,255,255,.18);color:#f7f5e9;background:rgba(255,255,255,.06)}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{min-width:0;padding:20px;border:1px solid rgba(255,255,255,.09);border-radius:20px;background:rgba(13,31,27,.8);box-shadow:0 18px 50px rgba(0,0,0,.22)}.wideCard,.settingsCard{grid-column:1/-1}.settingsCard{border-color:rgba(158,198,174,.2);background:linear-gradient(145deg,rgba(18,48,40,.92),rgba(10,29,25,.9))}.cronCard{background:linear-gradient(145deg,rgba(34,56,43,.96),rgba(9,29,25,.92))}.cardHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.status{flex:none;padding:6px 9px;border-radius:999px;font-size:.72rem;font-weight:800;text-transform:capitalize}.statusGood{color:#bff6ce;background:rgba(42,154,85,.18)}.statusBad{color:#ffd5ca;background:rgba(195,76,48,.18)}
+  dl{margin:0}dl>div{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(0,1.3fr);gap:12px;padding:11px 0;border-top:1px solid rgba(255,255,255,.07)}dt{color:#8ea198;font-size:.82rem}dd{min-width:0;margin:0;color:#f2f5ed;font-size:.82rem;overflow-wrap:anywhere}.errorBox,.successBox,.warningBox,.criticalBox{box-sizing:border-box;margin-bottom:16px;padding:14px 16px;border-radius:14px}.errorBox{border:1px solid rgba(255,115,86,.35);color:#ffd5ca;background:rgba(133,44,26,.25)}.successBox{border:1px solid rgba(110,218,144,.32);color:#c8f5d5;background:rgba(31,113,62,.25)}.warningBox{border:1px solid rgba(238,205,108,.28);color:#f5e6b5;background:rgba(115,88,23,.24)}.criticalBox{border:1px solid rgba(255,159,83,.4);color:#ffe2c2;background:rgba(151,68,17,.28)}
+  .testGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.testButton{display:flex;align-items:center;gap:12px;min-height:72px;text-align:left;border:1px solid rgba(255,255,255,.1);color:#f7f5e9;background:rgba(255,255,255,.045)}.testButton:hover:not(:disabled){background:rgba(255,255,255,.09)}.testIcon{font-size:1.5rem}.testButton strong,.testButton small{display:block}.testButton small{margin-top:4px;color:#90a49a;font-weight:500;line-height:1.35}.cronSummary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px}.cronSummary>div,.cronMetrics>div{padding:13px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(0,0,0,.12)}.cronSummary span,.cronMetrics span{display:block;color:#8ea198;font-size:.75rem}.cronSummary strong{display:block;margin-top:5px;font-size:.9rem}.cronMetrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px}.cronMetrics strong{display:block;font-size:1.35rem}.runButton{width:100%;margin-top:4px}.finePrint{margin:12px 0 0;color:#90a49a;font-size:.78rem;line-height:1.5}.finePrint code{color:#c8f5d5}.inlineError{margin-bottom:12px;padding:10px;border-radius:10px;color:#ffd5ca;background:rgba(133,44,26,.25)}
+  .deliveryList{display:grid;gap:9px}.deliveryRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(0,0,0,.1)}.deliveryRow div span{display:block;margin-top:4px;color:#8ea198;font-size:.75rem}.deliveryRow p{grid-column:1/-1;margin:0;color:#bac8c0;font-size:.8rem;line-height:1.45}.emptyState{margin:0;color:#8ea198}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}.wideCard,.settingsCard{grid-column:auto}.actions button{flex:1 1 100%}dl>div{grid-template-columns:1fr;gap:4px}.testGrid,.cronSummary{grid-template-columns:1fr}.cronMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.deliveryRow{grid-template-columns:1fr}.deliveryRow p{grid-column:auto}}
+`;
