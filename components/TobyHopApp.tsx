@@ -906,6 +906,62 @@ function particleSymbol(
   }
 }
 
+function getEncounterSymbol(
+  encounter: HopReceipt['encounter'],
+): string {
+  if (!encounter) {
+    return '🐸';
+  }
+
+  switch (encounter.category) {
+    case 'golden':
+      return '✨';
+
+    case 'secret':
+      return '🔑';
+
+    case 'rare':
+      return '🌙';
+
+    case 'find':
+      return '🪷';
+
+    case 'ambient':
+      return '🌊';
+  }
+}
+
+function getEncounterEyebrow(
+  encounter: HopReceipt['encounter'],
+): string {
+  if (!encounter) {
+    return 'HOP COMPLETE';
+  }
+
+  if (
+    encounter.firstDiscovery
+  ) {
+    return 'FIRST DISCOVERY';
+  }
+
+  switch (encounter.category) {
+    case 'golden':
+      return 'GOLDEN ENCOUNTER';
+
+    case 'secret':
+      return 'SECRET FOUND';
+
+    case 'rare':
+      return 'RARE ENCOUNTER';
+
+    case 'find':
+      return 'POND FIND';
+
+    case 'ambient':
+      return 'POND MOMENT';
+  }
+}
+
 function buildSpecialPondState(
   pond: ReturnType<
     typeof getTodaysPond
@@ -3111,7 +3167,9 @@ export function TobyHopApp() {
             'success',
 
           message:
-            'Today’s hop is safely recorded.',
+            completed.encounter
+              ? `${completed.encounter.name} appeared in the pond.`
+              : 'Today’s hop is safely recorded.',
         });
 
         try {
@@ -3721,8 +3779,18 @@ export function TobyHopApp() {
         .NEXT_PUBLIC_APP_URL ||
       window.location.origin;
 
+    const encounterShareLine =
+      receipt.encounter
+        ? `\n\n${receipt.encounter.firstDiscovery
+            ? 'First discovery'
+            : 'Pond encounter'}: ${receipt.encounter.name}.`
+        : '';
+
+    const shareCastText =
+      `${receipt.castText}${encounterShareLine}`;
+
     const shareText =
-      `${receipt.castText}\n\n${appUrl}`;
+      `${shareCastText}\n\n${appUrl}`;
 
     if (
       canCast
@@ -3732,7 +3800,7 @@ export function TobyHopApp() {
           sdk.actions
             .composeCast({
               text:
-                receipt.castText,
+                shareCastText,
 
               embeds: [
                 appUrl,
@@ -3769,7 +3837,7 @@ export function TobyHopApp() {
             'Toby Hop',
 
           text:
-            receipt.castText,
+            shareCastText,
 
           url:
             appUrl,
@@ -4700,26 +4768,90 @@ export function TobyHopApp() {
 
       {receipt && (
         <div
-          className="success"
+          className={[
+            'success',
+
+            receipt.encounter
+              ? 'success-has-encounter'
+              : '',
+
+            receipt.encounter
+              ? `success-encounter-${receipt.encounter.category}`
+              : '',
+
+            receipt.encounter
+              ? `success-rarity-${receipt.encounter.rarity}`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           role="dialog"
           aria-modal="true"
-          aria-label="Hop complete"
+          aria-label={
+            receipt.encounter
+              ? `${receipt.encounter.name} discovered`
+              : 'Hop complete'
+          }
         >
           <div className="success-card">
             <div
-              className="success-frog"
+              className={[
+                'success-frog',
+
+                receipt.encounter
+                  ? 'success-encounter-symbol'
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               aria-hidden="true"
             >
-              🐸
+              {getEncounterSymbol(
+                receipt.encounter,
+              )}
             </div>
 
             <div className="success-eyebrow">
-              HOP COMPLETE
+              {getEncounterEyebrow(
+                receipt.encounter,
+              )}
             </div>
 
-            <div className="energy">
-              +1 BIG POND ENERGY
-            </div>
+            {receipt.encounter ? (
+              <div
+                className="encounter-reveal"
+                data-encounter-key={
+                  receipt.encounter.key
+                }
+                data-visual-key={
+                  receipt.encounter.visualKey
+                }
+              >
+                <strong className="encounter-name">
+                  {receipt.encounter.name}
+                </strong>
+
+                <p className="encounter-description">
+                  {receipt.encounter.description}
+                </p>
+
+                <div className="encounter-meta">
+                  <span className="encounter-rarity">
+                    {receipt.encounter.rarity}
+                  </span>
+
+                  {receipt.encounter.firstDiscovery && (
+                    <span className="encounter-first">
+                      Added to your pond finds
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="energy">
+                +1 BIG POND ENERGY
+              </div>
+            )}
 
             <div className="success-summary">
               <strong>
