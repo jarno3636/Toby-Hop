@@ -129,10 +129,10 @@ function buildReminder(user: ReminderUser, now: Date) {
   return {
     type: streak > 0 ? "streak_warning" as const : "daily_hop_reminder" as const,
     notificationId: `daily-reminder:${pondDate}:${user.fid}`,
-    title: streak > 0 ? "Your streak is waiting 🐸" : "The pond misses you 🐸",
+    title: pond.curiosityTitle,
     body: streak > 0
-      ? `Your ${streak}-day streak is still alive. One hop keeps it going.`
-      : "The pond is ready. Make your Toby Hop today.",
+      ? `${pond.curiosityBody} Your ${streak}-day trail is still unbroken.`
+      : pond.curiosityBody,
   };
 }
 
