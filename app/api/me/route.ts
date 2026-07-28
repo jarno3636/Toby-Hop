@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 
 import { requireCanonicalIdentity } from '@/lib/auth/canonical-identity';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getTodaysPond, getUtcDayKey } from '@/lib/todays-pond';
 import type {
   PondFind,
   PondJournal,
   PondJournalEntry,
   PondSecret,
+  PondCommunityDiscovery,
 } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +30,20 @@ type SecretRow = {
   description: string;
   source: string;
   unlocked_at: string;
+};
+
+type NotificationUserRow = {
+  notifications_enabled: boolean | null;
+  notification_url: string | null;
+  notification_token: string | null;
+};
+
+type CommunityEncounterRow = {
+  encounter_key: string;
+  name: string;
+  rarity: PondJournalEntry['rarity'];
+  visual_key: string;
+  fid: number;
 };
 
 type EncounterRow = {
@@ -103,6 +119,9 @@ export async function GET() {
         recentFinds: [],
         recentEntries: [],
         recentSecrets: [],
+        conditions: null,
+        communityDiscoveries: [],
+        notificationHealth: { enabled: false, credentialsStored: false, status: 'unknown' },
       };
 
       return NextResponse.json(emptyJournal, {
@@ -120,6 +139,8 @@ export async function GET() {
       encountersResult,
       xpResult,
       secretsResult,
+      notificationUserResult,
+      communityResult,
     ] = await Promise.all([
       db
         .from('toby_hop_encounter_definitions')
@@ -179,6 +200,19 @@ export async function GET() {
         .eq('fid', identity.fid)
         .order('unlocked_at', { ascending: false })
         .limit(12),
+
+      db
+        .from('toby_hop_users')
+        .select('notifications_enabled,notification_url,notification_token')
+        .eq('fid', identity.fid)
+        .maybeSingle<NotificationUserRow>(),
+
+      db
+        .from('toby_hop_encounters')
+        .select('encounter_key,name,rarity,visual_key,fid')
+        .gte('created_at', `${getUtcDayKey()}T00:00:00.000Z`)
+        .order('created_at', { ascending: false })
+        .limit(1000),
     ]);
 
     if (definitionsResult.error) {
@@ -209,6 +243,14 @@ export async function GET() {
       throw new Error(
         `Unable to load pond secrets: ${secretsResult.error.message}`,
       );
+    }
+
+    if (notificationUserResult.error) {
+      throw new Error(`Unable to load notification status: ${notificationUserResult.error.message}`);
+    }
+
+    if (communityResult.error) {
+      throw new Error(`Unable to load community discoveries: ${communityResult.error.message}`);
     }
 
     const findRows =
@@ -273,6 +315,36 @@ export async function GET() {
       0,
     );
 
+    const pond = getTodaysPond();
+    const communityRows = (communityResult.data ?? []) as CommunityEncounterRow[];
+    const communityMap = new Map<string, { name: string; rarity: PondJournalEntry['rarity']; visualKey: string; fids: Set<number> }>();
+
+    for (const row of communityRows) {
+      const current = communityMap.get(row.encounter_key) ?? {
+        name: row.name,
+        rarity: row.rarity,
+        visualKey: row.visual_key,
+        fids: new Set<number>(),
+      };
+      current.fids.add(row.fid);
+      communityMap.set(row.encounter_key, current);
+    }
+
+    const communityDiscoveries: PondCommunityDiscovery[] = [...communityMap.entries()]
+      .map(([key, value]) => ({
+        key,
+        name: value.name,
+        rarity: value.rarity,
+        visualKey: value.visualKey,
+        travelers: value.fids.size,
+      }))
+      .sort((a, b) => b.travelers - a.travelers)
+      .slice(0, 5);
+
+    const notificationRow = notificationUserResult.data;
+    const credentialsStored = Boolean(notificationRow?.notification_url && notificationRow?.notification_token);
+    const notificationsEnabled = notificationRow?.notifications_enabled === true;
+
     const journal: PondJournal = {
       availableDiscoveries:
         definitionsResult.count ?? 0,
@@ -283,6 +355,30 @@ export async function GET() {
       recentFinds,
       recentEntries,
       recentSecrets,
+      conditions: {
+        name: pond.name,
+        emoji: pond.emoji,
+        description: pond.description,
+        weather: pond.weather,
+        season: pond.season,
+        mood: pond.mood,
+        moonPhase: pond.moonPhase,
+        forecastName: pond.forecast.name,
+        forecastEmoji: pond.forecast.emoji,
+        forecastHint: pond.forecast.hint,
+      },
+      communityDiscoveries,
+      notificationHealth: {
+        enabled: notificationsEnabled,
+        credentialsStored,
+        status: notificationsEnabled && credentialsStored
+          ? 'subscribed'
+          : notificationsEnabled
+            ? 'missing_credentials'
+            : notificationRow
+              ? 'disabled'
+              : 'unknown',
+      },
     };
 
     return NextResponse.json(journal, {
