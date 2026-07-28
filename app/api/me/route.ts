@@ -6,6 +6,7 @@ import type {
   PondFind,
   PondJournal,
   PondJournalEntry,
+  PondSecret,
 } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,14 @@ type UserFindRow = {
   times_found: number | string | null;
   first_found_at: string;
   last_found_at: string;
+};
+
+type SecretRow = {
+  secret_key: string;
+  secret_name: string;
+  description: string;
+  source: string;
+  unlocked_at: string;
 };
 
 type EncounterRow = {
@@ -93,6 +102,7 @@ export async function GET() {
         totalDiscoveryXp: 0,
         recentFinds: [],
         recentEntries: [],
+        recentSecrets: [],
       };
 
       return NextResponse.json(emptyJournal, {
@@ -109,6 +119,7 @@ export async function GET() {
       findsResult,
       encountersResult,
       xpResult,
+      secretsResult,
     ] = await Promise.all([
       db
         .from('toby_hop_encounter_definitions')
@@ -161,6 +172,13 @@ export async function GET() {
         .select('reward_xp')
         .eq('fid', identity.fid)
         .limit(10_000),
+
+      db
+        .from('toby_hop_user_secrets')
+        .select('secret_key,secret_name,description,source,unlocked_at')
+        .eq('fid', identity.fid)
+        .order('unlocked_at', { ascending: false })
+        .limit(12),
     ]);
 
     if (definitionsResult.error) {
@@ -184,6 +202,12 @@ export async function GET() {
     if (xpResult.error) {
       throw new Error(
         `Unable to total discovery XP: ${xpResult.error.message}`,
+      );
+    }
+
+    if (secretsResult.error && secretsResult.error.code !== '42P01') {
+      throw new Error(
+        `Unable to load pond secrets: ${secretsResult.error.message}`,
       );
     }
 
@@ -221,15 +245,27 @@ export async function GET() {
         createdAt: row.created_at,
       }));
 
+    const recentSecrets: PondSecret[] =
+      ((secretsResult.data ?? []) as SecretRow[]).map((row) => ({
+        key: row.secret_key,
+        name: row.secret_name,
+        description: row.description,
+        source: row.source,
+        unlockedAt: row.unlocked_at,
+      }));
+
     const rareDiscoveries = findRows.filter(
       (row) =>
         row.rarity === 'rare' ||
         row.rarity === 'legendary',
     ).length;
 
-    const secretDiscoveries = findRows.filter(
+    const encounterSecretDiscoveries = findRows.filter(
       (row) => row.rarity === 'secret',
     ).length;
+
+    const secretDiscoveries =
+      encounterSecretDiscoveries + recentSecrets.length;
 
     const totalDiscoveryXp = (xpResult.data ?? []).reduce(
       (total, row) =>
@@ -246,6 +282,7 @@ export async function GET() {
       totalDiscoveryXp,
       recentFinds,
       recentEntries,
+      recentSecrets,
     };
 
     return NextResponse.json(journal, {
