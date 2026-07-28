@@ -11,10 +11,6 @@ import {
 } from './processors/notifications';
 
 import {
-  runPatchProcessor,
-} from './processors/patches';
-
-import {
   runSecretProcessor,
 } from './processors/secrets';
 
