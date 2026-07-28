@@ -1365,6 +1365,10 @@ export async function POST(
             encounter?.key ??
             null,
 
+          encounterName:
+            encounter?.name ??
+            null,
+
           encounterCategory:
             encounter?.category ??
             null,
