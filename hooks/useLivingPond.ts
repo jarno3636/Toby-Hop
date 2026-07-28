@@ -53,6 +53,9 @@ export function useLivingPond(context: LivingPondContext) {
       context.todayHopped,
       context.streak,
       context.hour,
+      context.season,
+      context.weather,
+      context.mood,
     ],
   );
 
