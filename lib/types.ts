@@ -108,6 +108,34 @@ export type PondSecret = {
   unlockedAt: string;
 };
 
+
+export type PondCommunityDiscovery = {
+  key: string;
+  name: string;
+  rarity: PondEncounterRarity;
+  visualKey: string;
+  travelers: number;
+};
+
+export type PondJournalConditions = {
+  name: string;
+  emoji: string;
+  description: string;
+  weather: string;
+  season: string;
+  mood: string;
+  moonPhase: string;
+  forecastName: string;
+  forecastEmoji: string;
+  forecastHint: string;
+};
+
+export type NotificationHealth = {
+  enabled: boolean;
+  credentialsStored: boolean;
+  status: 'subscribed' | 'missing_credentials' | 'disabled' | 'unknown';
+};
+
 export type PondJournal = {
   availableDiscoveries: number;
   uniqueDiscoveries: number;
@@ -117,6 +145,9 @@ export type PondJournal = {
   recentFinds: PondFind[];
   recentEntries: PondJournalEntry[];
   recentSecrets: PondSecret[];
+  conditions: PondJournalConditions | null;
+  communityDiscoveries: PondCommunityDiscovery[];
+  notificationHealth: NotificationHealth;
 };
 
 export type HopReceipt = {

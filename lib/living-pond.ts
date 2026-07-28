@@ -20,7 +20,13 @@ export type LivingPondEventId =
   | 'frog-call'
   | 'firefly-rest'
   | 'bottle-glint'
-  | 'heron-shadow';
+  | 'heron-shadow'
+  | 'fog-lantern'
+  | 'tadpole-ring'
+  | 'acorn-drop'
+  | 'goose-crossing'
+  | 'moon-lotus'
+  | 'pond-whisper';
 
 export type FrogCue =
   | 'idle'
@@ -46,6 +52,9 @@ export type LivingPondContext = {
   todayHopped: boolean;
   streak: number;
   hour: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  weather: 'clear' | 'drizzle' | 'rain' | 'fog' | 'wind' | 'snow';
+  mood: 'bright' | 'quiet' | 'restless' | 'mysterious' | 'glowing';
 };
 
 export type LivingPondEventDefinition = {
@@ -212,6 +221,51 @@ export const LIVING_POND_EVENTS: readonly LivingPondEventDefinition[] = [
     frogCue: 'look-up',
     allowed: ({ busy, raining, snowing, hour }) =>
       !busy && !raining && !snowing && hour >= 6 && hour < 18,
+  },
+
+  {
+    id: 'fog-lantern',
+    durationMs: 9_500,
+    weight: 3,
+    frogCue: 'curious',
+    allowed: ({ busy, weather }) => !busy && weather === 'fog',
+  },
+  {
+    id: 'tadpole-ring',
+    durationMs: 5_800,
+    weight: 7,
+    frogCue: 'glance-left',
+    allowed: ({ busy, snowing, season }) => !busy && !snowing && season === 'spring',
+  },
+  {
+    id: 'acorn-drop',
+    durationMs: 5_000,
+    weight: 7,
+    frogCue: 'look-up',
+    allowed: ({ busy, raining, season }) => !busy && !raining && season === 'autumn',
+  },
+  {
+    id: 'goose-crossing',
+    durationMs: 8_200,
+    weight: 3,
+    frogCue: 'look-up',
+    allowed: ({ busy, raining, hour, season }) =>
+      !busy && !raining && season === 'autumn' && hour >= 7 && hour < 18,
+  },
+  {
+    id: 'moon-lotus',
+    durationMs: 8_800,
+    weight: 2,
+    frogCue: 'look-up',
+    allowed: ({ busy, raining, moonPhase, hour }) =>
+      !busy && !raining && moonPhase === 'full' && nightHours(hour),
+  },
+  {
+    id: 'pond-whisper',
+    durationMs: 6_800,
+    weight: 2,
+    frogCue: 'double-blink',
+    allowed: ({ busy, mood }) => !busy && (mood === 'mysterious' || mood === 'quiet'),
   },
   {
     id: 'golden-butterfly',
