@@ -59,7 +59,6 @@ export interface EventProcessor {
 
 const processors: EventProcessor[] = [
   runChallengeProcessor,
-  runPatchProcessor,
   runXpProcessor,
   runTitleProcessor,
   runSecretProcessor,
