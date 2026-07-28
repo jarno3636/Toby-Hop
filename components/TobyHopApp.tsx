@@ -4500,6 +4500,7 @@ export function TobyHopApp() {
               todayHopped={user.today_hopped}
               streak={user.current_streak}
               hour={new Date().getHours()}
+              encounter={receipt?.encounter ?? null}
               onFrogCueChange={handleFrogCueChange}
             />
 
