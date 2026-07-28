@@ -55,7 +55,10 @@ import {
   getTodaysPond,
   type PondParticle,
 } from '@/lib/todays-pond';
-import type { FrogCue } from '@/lib/living-pond';
+import type {
+  FrogCue,
+  LivingPondEventDefinition,
+} from '@/lib/living-pond';
 import type {
   HopReceipt,
   HopUser,
@@ -707,6 +710,63 @@ function playHopLandingSound(): void {
   }, 650);
 }
 
+
+type PondSoundKind =
+  | 'companion'
+  | 'water'
+  | 'flutter'
+  | 'sparkle'
+  | 'rustle'
+  | 'croak'
+  | 'rare';
+
+function playPondSound(kind: PondSoundKind, enabled = true): void {
+  if (!enabled || typeof window === 'undefined') return;
+
+  const context = createAudioContext();
+  if (!context) return;
+  void context.resume().catch(() => undefined);
+
+  const start = context.currentTime;
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+
+  const settings: Record<PondSoundKind, [OscillatorType, number, number, number]> = {
+    companion: ['sine', 260, 390, 0.08],
+    water: ['sine', 170, 105, 0.055],
+    flutter: ['triangle', 760, 980, 0.035],
+    sparkle: ['sine', 920, 1480, 0.045],
+    rustle: ['sawtooth', 145, 95, 0.018],
+    croak: ['square', 125, 88, 0.025],
+    rare: ['sine', 520, 1040, 0.065],
+  };
+
+  const [wave, from, to, volume] = settings[kind];
+  oscillator.type = wave;
+  oscillator.frequency.setValueAtTime(from, start);
+  oscillator.frequency.exponentialRampToValueAtTime(to, start + 0.18);
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(kind === 'rustle' ? 620 : 2200, start);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.24);
+  oscillator.connect(filter);
+  filter.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start(start);
+  oscillator.stop(start + 0.26);
+  window.setTimeout(() => void context.close().catch(() => undefined), 450);
+}
+
+function pondEventSound(event: LivingPondEventDefinition): PondSoundKind {
+  if (['butterfly', 'golden-butterfly', 'dragonfly', 'floating-feather', 'heron-shadow', 'goose-crossing'].includes(event.id)) return 'flutter';
+  if (['water-sparkle', 'firefly-rest', 'moon-lotus', 'lotus-whisper', 'fog-lantern', 'pond-whisper'].includes(event.id)) return event.weight <= 3 ? 'rare' : 'sparkle';
+  if (['reed-rustle', 'drifting-leaf', 'acorn-drop', 'lily-turn'].includes(event.id)) return 'rustle';
+  if (event.id === 'frog-call' || event.id === 'tiny-toby') return 'croak';
+  return 'water';
+}
+
 function readPendingHop():
 PendingHopRecord | null {
   try {
@@ -1148,10 +1208,51 @@ export function TobyHopApp() {
   const [frogCue, setFrogCue] =
     useState<FrogCue>('idle');
 
+  const [companionCue, setCompanionCue] =
+    useState<FrogCue | null>(null);
+
+  const [soundEnabled, setSoundEnabled] =
+    useState(true);
+
+  const companionResetRef = useRef<number | null>(null);
+  const companionTapRef = useRef(0);
+
   const handleFrogCueChange =
     useCallback((cue: FrogCue) => {
       setFrogCue(cue);
     }, []);
+
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem('toby_hop_sound_enabled');
+    if (stored !== null) setSoundEnabled(stored === 'true');
+    return () => {
+      if (companionResetRef.current) window.clearTimeout(companionResetRef.current);
+    };
+  }, []);
+
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((current) => {
+      const next = !current;
+      window.localStorage.setItem('toby_hop_sound_enabled', String(next));
+      if (next) playPondSound('sparkle', true);
+      return next;
+    });
+  }, []);
+
+  const showCompanionCue = useCallback((cue: FrogCue, duration = 900) => {
+    if (companionResetRef.current) window.clearTimeout(companionResetRef.current);
+    setCompanionCue(cue);
+    companionResetRef.current = window.setTimeout(() => {
+      setCompanionCue(null);
+      companionResetRef.current = null;
+    }, duration);
+  }, []);
+
+  const handlePondEventChange = useCallback((event: LivingPondEventDefinition | null) => {
+    if (!event) return;
+    playPondSound(pondEventSound(event), soundEnabled);
+  }, [soundEnabled]);
 
   const [
     receipt,
@@ -3484,6 +3585,21 @@ export function TobyHopApp() {
       [],
     );
 
+
+  async function handleTobyPress() {
+    if (!user.today_hopped) {
+      await performHop();
+      return;
+    }
+
+    companionTapRef.current += 1;
+    const tap = companionTapRef.current;
+    const cues: FrogCue[] = ['curious', 'glance-left', 'glance-right', 'double-blink', 'smile'];
+    showCompanionCue(cues[(tap - 1) % cues.length] ?? 'curious', tap % 5 === 0 ? 1_350 : 900);
+    playPondSound(tap % 5 === 0 ? 'water' : 'companion', soundEnabled);
+    await provideTapFeedback();
+  }
+
   async function performHop() {
     if (
       hopInProgressRef.current ||
@@ -4294,6 +4410,16 @@ export function TobyHopApp() {
               .filter(Boolean)
               .join(' ')}
           >
+            <button
+              type="button"
+              className="pond-sound-toggle"
+              onClick={toggleSound}
+              aria-label={soundEnabled ? 'Mute pond sounds' : 'Turn on pond sounds'}
+              aria-pressed={soundEnabled}
+            >
+              {soundEnabled ? '♪' : '×'}
+            </button>
+
             <div className="hop-copy">
               <h1>
                 {user.today_hopped
@@ -4526,6 +4652,7 @@ export function TobyHopApp() {
               mood={todaysPond.mood}
               encounter={receipt?.encounter ?? null}
               onFrogCueChange={handleFrogCueChange}
+              onEventChange={handlePondEventChange}
             />
 
             <div className="reed r1" />
@@ -4544,16 +4671,11 @@ export function TobyHopApp() {
             <button
               type="button"
               className="frog-button"
-              disabled={
-                busy ||
-                user.today_hopped
-              }
-              onClick={
-                performHop
-              }
+              disabled={busy}
+              onClick={() => void handleTobyPress()}
               aria-label={
                 user.today_hopped
-                  ? 'Today’s hop is complete'
+                  ? 'Tap Toby to say hello'
                   : 'Tap Toby to hop'
               }
             >
@@ -4570,7 +4692,11 @@ export function TobyHopApp() {
                     : '',
 
                   !busy
-                    ? `frog-${frogCue}`
+                    ? `frog-${companionCue ?? frogCue}`
+                    : '',
+
+                  companionCue
+                    ? 'frog-interacting'
                     : '',
                 ]
                   .filter(Boolean)
@@ -4610,7 +4736,7 @@ export function TobyHopApp() {
 
               <span>
                 {user.today_hopped
-                  ? 'One Big Pond Energy collected'
+                  ? 'Tap Toby—he may react differently'
                   : hopSubtext[
                       hopState
                     ]}
