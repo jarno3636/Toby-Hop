@@ -47,6 +47,33 @@ export type LeaderRow = {
   rank: number;
 };
 
+export type PondEncounterCategory =
+  | 'ambient'
+  | 'find'
+  | 'rare'
+  | 'secret'
+  | 'golden';
+
+export type PondEncounterRarity =
+  | 'common'
+  | 'uncommon'
+  | 'rare'
+  | 'legendary'
+  | 'secret';
+
+export type PondEncounter = {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  category: PondEncounterCategory;
+  rarity: PondEncounterRarity;
+  visualKey: string;
+  rewardXp: number;
+  firstDiscovery: boolean;
+  createdAt: string;
+};
+
 export type HopReceipt = {
   hopId: string;
 
@@ -63,4 +90,8 @@ export type HopReceipt = {
   txHash: `0x${string}`;
 
   usdcAtomic?: string;
+  alreadyRecorded?: boolean;
+  accountAbstraction?: boolean | null;
+
+  encounter: PondEncounter | null;
 };
