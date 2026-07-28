@@ -45,7 +45,8 @@ function isPondJournal(value: unknown): value is PondJournal {
     typeof journal.secretDiscoveries === 'number' &&
     typeof journal.totalDiscoveryXp === 'number' &&
     Array.isArray(journal.recentFinds) &&
-    Array.isArray(journal.recentEntries)
+    Array.isArray(journal.recentEntries) &&
+    Array.isArray(journal.recentSecrets)
   );
 }
 
@@ -57,6 +58,7 @@ const EMPTY_JOURNAL: PondJournal = {
   totalDiscoveryXp: 0,
   recentFinds: [],
   recentEntries: [],
+  recentSecrets: [],
 };
 
 function findSymbol(find: Pick<PondFind, 'visualKey' | 'rarity'>): string {
@@ -423,6 +425,30 @@ export function MePanel(props: Props) {
               </div>
             )}
           </section>
+
+          {journal.recentSecrets.length > 0 && (
+            <section className="journal-section">
+              <div className="journal-section-heading">
+                <div>
+                  <span>POND SECRETS</span>
+                  <strong>Things revealed only once</strong>
+                </div>
+              </div>
+
+              <div className="journal-secret-list">
+                {journal.recentSecrets.slice(0, 6).map((secret) => (
+                  <article className="journal-secret-card" key={secret.key}>
+                    <span className="journal-secret-mark" aria-hidden="true">◈</span>
+                    <div>
+                      <strong>{secret.name}</strong>
+                      <p>{secret.description}</p>
+                      <small>{formatJournalDate(secret.unlockedAt)}</small>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="journal-section">
             <div className="journal-section-heading">
