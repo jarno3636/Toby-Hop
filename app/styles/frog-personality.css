@@ -90,3 +90,22 @@
   .frog-companion-splash,
   .frog-reaction-bubble { animation: none !important; }
 }
+
+/* Every seventh companion tap gives Toby a playful coin-style spin. */
+.frog.frog-coin-spin {
+  transform-origin: 50% 72%;
+  animation: frogCoinSpin 1.15s cubic-bezier(.2,.75,.2,1) 1 both !important;
+  backface-visibility: visible;
+}
+
+@keyframes frogCoinSpin {
+  0% { transform: translateY(0) rotateY(0deg) scale(1); }
+  18% { transform: translateY(-18px) rotateY(90deg) scale(.92,1.06); }
+  45% { transform: translateY(-30px) rotateY(360deg) scale(1.03); }
+  72% { transform: translateY(-14px) rotateY(630deg) scale(.96,1.04); }
+  100% { transform: translateY(0) rotateY(720deg) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frog.frog-coin-spin { animation: none !important; }
+}
