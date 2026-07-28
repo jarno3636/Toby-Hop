@@ -3,6 +3,7 @@ export type TobyHopNotificationType =
   | 'daily_hop_reminder'
   | 'streak_warning'
   | 'rare_discovery'
+  | 'secret_discovery'
   | 'streak_milestone'
   | 'golden_toby'
   | 'rainbow_pond'

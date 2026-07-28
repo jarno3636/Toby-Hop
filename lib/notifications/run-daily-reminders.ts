@@ -2,6 +2,8 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendTobyHopNotification } from "@/lib/notifications/send-notification";
+import { getTodaysPond } from "@/lib/todays-pond";
+import { getSeasonalEvent } from "@/lib/toby-core/events/seasonal-calendar";
 
 type ReminderUser = {
   fid: number;
@@ -25,8 +27,8 @@ export type DailyReminderRunResult = {
   duplicate: number;
 };
 
-function utcDay(): string {
-  return new Date().toISOString().slice(0, 10);
+function utcDay(date = new Date()): string {
+  return date.toISOString().slice(0, 10);
 }
 
 async function createRun(source: DailyReminderRunSource, startedAt: string): Promise<string | null> {
@@ -82,11 +84,62 @@ async function finishRun(
   if (error) console.error("Unable to finish cron run log.", error);
 }
 
-export async function runDailyReminders(
-  source: DailyReminderRunSource,
-): Promise<DailyReminderRunResult> {
-  const startedAt = new Date().toISOString();
-  const pondDate = utcDay();
+function buildReminder(user: ReminderUser, now: Date) {
+  const pond = getTodaysPond(now);
+  const seasonal = getSeasonalEvent(now);
+  const streak = Math.max(0, user.current_streak ?? 0);
+  const pondDate = utcDay(now);
+
+  if (seasonal) {
+    return {
+      type: "seasonal_event" as const,
+      notificationId: `seasonal-reminder:${seasonal.key}:${pondDate}:${user.fid}`,
+      title: seasonal.notificationTitle,
+      body: seasonal.notificationBody,
+    };
+  }
+
+  if (pond.goldenToby) {
+    return {
+      type: "golden_toby" as const,
+      notificationId: `golden-pond:${pondDate}:${user.fid}`,
+      title: "Golden Toby may appear ✨",
+      body: "Today’s pond carries a legendary glow. Make your hop before it fades.",
+    };
+  }
+
+  if (pond.id === "rainbow") {
+    return {
+      type: "rainbow_pond" as const,
+      notificationId: `rainbow-pond:${pondDate}:${user.fid}`,
+      title: "Rainbow Pond is here 🌈",
+      body: "Today’s pond has changed. Visit before the colors fade.",
+    };
+  }
+
+  if (pond.id === "shooting-star") {
+    return {
+      type: "seasonal_event" as const,
+      notificationId: `starfall-pond:${pondDate}:${user.fid}`,
+      title: "Starfall over the pond ✦",
+      body: "A rare sky event is active in Toby Hop today.",
+    };
+  }
+
+  return {
+    type: streak > 0 ? "streak_warning" as const : "daily_hop_reminder" as const,
+    notificationId: `daily-reminder:${pondDate}:${user.fid}`,
+    title: streak > 0 ? "Your streak is waiting 🐸" : "The pond misses you 🐸",
+    body: streak > 0
+      ? `Your ${streak}-day streak is still alive. One hop keeps it going.`
+      : "The pond is ready. Make your Toby Hop today.",
+  };
+}
+
+export async function runDailyReminders(source: DailyReminderRunSource): Promise<DailyReminderRunResult> {
+  const now = new Date();
+  const startedAt = now.toISOString();
+  const pondDate = utcDay(now);
   const runId = await createRun(source, startedAt);
 
   let candidates = 0;
@@ -108,21 +161,17 @@ export async function runDailyReminders(
       .returns<ReminderUser[]>();
 
     if (error) throw error;
-
     candidates = users?.length ?? 0;
 
     for (const user of users ?? []) {
-      const streak = Math.max(0, user.current_streak ?? 0);
+      const reminder = buildReminder(user, now);
       const result = await sendTobyHopNotification({
         fid: user.fid,
-        type: streak > 0 ? "streak_warning" : "daily_hop_reminder",
-        notificationId: `daily-reminder:${pondDate}:${user.fid}`,
+        type: reminder.type,
+        notificationId: reminder.notificationId,
         pondDate,
-        title: streak > 0 ? "Your streak is waiting 🐸" : "The pond misses you 🐸",
-        body:
-          streak > 0
-            ? `Your ${streak}-day streak is still alive. One hop keeps it going.`
-            : "The pond is ready. Make your Toby Hop today.",
+        title: reminder.title,
+        body: reminder.body,
         targetUrl: "/",
       });
 
@@ -152,11 +201,7 @@ export async function runDailyReminders(
   } catch (cause) {
     const completedAt = new Date().toISOString();
     const message = cause instanceof Error ? cause.message : "Unable to send reminders.";
-    await finishRun(
-      runId,
-      { completedAt, candidates, sent, failed, skipped, duplicate },
-      message,
-    );
+    await finishRun(runId, { completedAt, candidates, sent, failed, skipped, duplicate }, message);
     throw cause;
   }
 }
