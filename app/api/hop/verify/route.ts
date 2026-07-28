@@ -46,6 +46,15 @@ import {
   processEvent,
 } from '@/lib/toby-core/events/dispatcher';
 
+import {
+  processHopEncounter,
+} from '@/lib/toby-core/pond/process-hop-encounter';
+
+import type {
+  PondEncounterResult,
+  PondEncounterRow,
+} from '@/lib/toby-core/pond/types';
+
 export const dynamic =
   'force-dynamic';
 
@@ -238,6 +247,42 @@ function logDatabaseError(
   );
 }
 
+function encounterRowToResult(
+  row: PondEncounterRow,
+): PondEncounterResult {
+  return {
+    id:
+      row.id,
+
+    key:
+      row.encounter_key,
+
+    name:
+      row.name,
+
+    description:
+      row.description,
+
+    category:
+      row.category,
+
+    rarity:
+      row.rarity,
+
+    visualKey:
+      row.visual_key,
+
+    rewardXp:
+      row.reward_xp,
+
+    firstDiscovery:
+      row.first_discovery,
+
+    createdAt:
+      row.created_at,
+  };
+}
+
 async function linkCanonicalIdentity(
   fid: number,
   walletAddress: string,
@@ -339,7 +384,9 @@ async function getExistingHopByHash(
     error,
   } =
     await db
-      .from('toby_hops')
+      .from(
+        'toby_hops',
+      )
       .select(`
         id,
         fid,
@@ -384,6 +431,64 @@ async function getExistingHopByHash(
   );
 }
 
+async function getStoredEncounterByHopId(
+  hopId: string,
+): Promise<PondEncounterResult | null> {
+  const db =
+    supabaseAdmin();
+
+  const {
+    data,
+    error,
+  } =
+    await db
+      .from(
+        'toby_hop_encounters',
+      )
+      .select(`
+        id,
+        fid,
+        hop_id,
+        encounter_definition_id,
+        encounter_key,
+        name,
+        description,
+        category,
+        rarity,
+        visual_key,
+        reward_xp,
+        first_discovery,
+        roll_value,
+        metadata,
+        created_at
+      `)
+      .eq(
+        'hop_id',
+        hopId,
+      )
+      .maybeSingle();
+
+  if (error) {
+    logDatabaseError(
+      'Unable to load stored pond encounter:',
+      error,
+      {
+        hopId,
+      },
+    );
+
+    return null;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return encounterRowToResult(
+    data as PondEncounterRow,
+  );
+}
+
 async function getProfileByFid(
   fid: number,
 ): Promise<HopperProfile | null> {
@@ -395,7 +500,9 @@ async function getProfileByFid(
     error,
   } =
     await db
-      .from('toby_hop_users')
+      .from(
+        'toby_hop_users',
+      )
       .select(`
         fid,
         display_name,
@@ -437,7 +544,9 @@ async function getProfileByWallet(
     error,
   } =
     await db
-      .from('toby_hop_users')
+      .from(
+        'toby_hop_users',
+      )
       .select(`
         fid,
         display_name,
@@ -593,6 +702,11 @@ async function existingHopToResponse(
       hop.fid,
     );
 
+  const encounter =
+    await getStoredEncounterByHopId(
+      hop.id,
+    );
+
   const tobyAtomic =
     hop.toby_amount_atomic ??
     '0';
@@ -664,6 +778,11 @@ async function existingHopToResponse(
 
     alreadyRecorded:
       true,
+
+    accountAbstraction:
+      null,
+
+    encounter,
   };
 }
 
@@ -678,7 +797,9 @@ async function updateHopCastText(
     error,
   } =
     await db
-      .from('toby_hops')
+      .from(
+        'toby_hops',
+      )
       .update({
         cast_text:
           castText,
@@ -743,10 +864,11 @@ export async function POST(
       body.txHash as Hash;
 
     /*
-      This still protects against one authenticated user submitting
-      another unrelated wallet address.
+      Protect against one authenticated user submitting another
+      unrelated wallet address.
 
-      It validates the requested wallet against the canonical session.
+      This validates the requested wallet against the canonical
+      authenticated session.
     */
     const submittedWallet =
       requireRequestedHopWallet(
@@ -830,8 +952,8 @@ export async function POST(
         });
 
     /*
-      Validate the token movements before checking the outer
-      transaction sender or target.
+      Validate token movements before checking the outer transaction
+      sender or target.
 
       For an ordinary wallet, transaction.from usually equals the
       submitted wallet.
@@ -864,7 +986,8 @@ export async function POST(
     }
 
     if (
-      tobyReceived <= 0n
+      tobyReceived <=
+      0n
     ) {
       throw new ApiError(
         'No TOBY transfer to the submitted wallet was found.',
@@ -889,11 +1012,12 @@ export async function POST(
 
       Account-abstraction transactions may point to an EntryPoint or
       smart-account execution contract instead of the underlying swap
-      router, so the validated ERC-20 flow becomes the authoritative
-      evidence in that case.
+      router, so the validated ERC-20 flow becomes authoritative in
+      that case.
     */
     if (
-      allowedTargets.length > 0 &&
+      allowedTargets.length >
+        0 &&
       directWalletTransaction
     ) {
       if (!transaction.to) {
@@ -1137,13 +1261,58 @@ export async function POST(
       castText,
     );
 
-    /*
-      Only newly recorded hops dispatch an event.
+    let encounter:
+      PondEncounterResult | null =
+        null;
 
-      Existing transactions return earlier in the route, preventing
-      the same hop from updating progression more than once.
+    /*
+      Pond encounters are optional enhancements.
+
+      A database or encounter-processing problem must never turn a
+      valid paid hop into a failed hop response.
     */
     if (identity.fid) {
+      try {
+        encounter =
+          await processHopEncounter({
+            fid:
+              identity.fid,
+
+            hopId:
+              result.hop_id,
+
+            streak:
+              result.streak_after,
+
+            totalHops:
+              result.total_hops_after,
+          });
+      } catch (
+        encounterError
+      ) {
+        console.error(
+          'Unable to process pond encounter:',
+          {
+            encounterError,
+
+            fid:
+              identity.fid,
+
+            hopId:
+              result.hop_id,
+
+            transactionHash:
+              transactionHash
+                .toLowerCase(),
+          },
+        );
+      }
+
+      /*
+        Dispatch the broader event after the encounter has been
+        resolved, allowing processors to react to its key, category,
+        and rarity later.
+      */
       await processEvent({
         type:
           'hop_completed',
@@ -1187,11 +1356,37 @@ export async function POST(
 
           accountAbstraction:
             !directWalletTransaction,
+
+          encounterId:
+            encounter?.id ??
+            null,
+
+          encounterKey:
+            encounter?.key ??
+            null,
+
+          encounterCategory:
+            encounter?.category ??
+            null,
+
+          encounterRarity:
+            encounter?.rarity ??
+            null,
+
+          encounterFirstDiscovery:
+            encounter
+              ?.firstDiscovery ??
+            false,
+
+          encounterRewardXp:
+            encounter
+              ?.rewardXp ??
+            0,
         },
       });
     } else {
       console.info(
-        'Skipped Toby event dispatch because the canonical identity has no FID:',
+        'Skipped pond encounter and event dispatch because the canonical identity has no FID:',
         {
           hopId:
             result.hop_id,
@@ -1240,6 +1435,8 @@ export async function POST(
 
       accountAbstraction:
         !directWalletTransaction,
+
+      encounter,
     });
   } catch (cause) {
     console.error(
@@ -1248,7 +1445,8 @@ export async function POST(
     );
 
     if (
-      cause instanceof ApiError
+      cause instanceof
+      ApiError
     ) {
       return jsonResponse(
         {
