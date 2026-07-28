@@ -217,6 +217,53 @@ export function LivingPondLayer({
       {activeEvent.id === 'lotus-whisper' && (
         <span className="living-lotus-whisper">✦</span>
       )}
+
+
+      {activeEvent.id === 'bubble-trail' && (
+        <span className="living-bubble-trail">
+          {Array.from({ length: 5 }, (_, index) => (
+            <i key={index} style={{ '--bubble-index': index } as CSSProperties} />
+          ))}
+        </span>
+      )}
+
+      {activeEvent.id === 'reed-rustle' && (
+        <span className="living-reed-rustle">
+          <i /><i /><i />
+        </span>
+      )}
+
+      {activeEvent.id === 'lily-turn' && (
+        <span className="living-lily-turn" />
+      )}
+
+      {activeEvent.id === 'floating-feather' && (
+        <span className="living-floating-feather">⌁</span>
+      )}
+
+      {activeEvent.id === 'snail-visit' && (
+        <span className="living-snail"><i /></span>
+      )}
+
+      {activeEvent.id === 'duck-family' && (
+        <span className="living-duck-family"><i /><i /><i /></span>
+      )}
+
+      {activeEvent.id === 'frog-call' && (
+        <span className="living-frog-call"><i /><i /></span>
+      )}
+
+      {activeEvent.id === 'firefly-rest' && (
+        <span className="living-firefly-rest" />
+      )}
+
+      {activeEvent.id === 'bottle-glint' && (
+        <span className="living-bottle-glint"><i /></span>
+      )}
+
+      {activeEvent.id === 'heron-shadow' && (
+        <span className="living-heron-shadow" />
+      )}
     </div>
   );
 }
