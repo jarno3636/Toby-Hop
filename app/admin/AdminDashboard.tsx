@@ -117,12 +117,11 @@ type TestResult = {
 
 type ForceSendResult = {
   success: boolean;
-  scope?: "me" | "all";
-  recipients?: number;
+  status?: string;
+  audience?: "me" | "specific" | "subscribers";
+  recipientCount?: number;
   sent?: number;
   failed?: number;
-  skipped?: number;
-  duplicate?: number;
   error?: string;
 };
 
@@ -333,12 +332,12 @@ export function AdminDashboard() {
     setForceResult(null);
 
     try {
-      const response = await sdk.quickAuth.fetch("/api/admin/notifications/force-send", {
+      const response = await sdk.quickAuth.fetch("/api/admin/notifications/send-test", {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({
-          scope,
-          confirmation: scope === "all" ? "SEND TEST TO ALL" : undefined,
+          kind: "daily",
+          audience: scope === "all" ? "subscribers" : "me",
         }),
         cache: "no-store",
       });
@@ -352,7 +351,7 @@ export function AdminDashboard() {
       const payload = await readJson<ForceSendResult>(response);
       setForceResult(payload);
 
-      if (!response.ok && response.status !== 207) {
+      if (!response.ok || !payload.success) {
         throw new Error(payload.error ?? "The forced notification test failed.");
       }
 
@@ -436,7 +435,7 @@ export function AdminDashboard() {
       {settingsError ? <div className="errorBox"><strong>Settings test failed.</strong> {settingsError}</div> : null}
       {testResult?.success ? <div className="successBox"><strong>{testResult.kind} notification sent.</strong>{testResult.httpStatus ? ` HTTP ${testResult.httpStatus}.` : ""}{typeof testResult.latencyMs === "number" ? ` ${testResult.latencyMs} ms.` : ""}</div> : null}
       {cronResult?.success ? <div className="successBox"><strong>Reminder job completed.</strong> Candidates {cronResult.candidates ?? 0}, sent {cronResult.sent ?? 0}, failed {cronResult.failed ?? 0}, skipped {cronResult.skipped ?? 0}, duplicates {cronResult.duplicate ?? 0}.</div> : null}
-      {forceResult ? <div className={forceResult.failed ? "warningBox" : "successBox"}><strong>Forced {forceResult.scope} test completed.</strong> Recipients {forceResult.recipients ?? 0}, sent {forceResult.sent ?? 0}, failed {forceResult.failed ?? 0}, skipped {forceResult.skipped ?? 0}.</div> : null}
+      {forceResult ? <div className={forceResult.failed ? "warningBox" : "successBox"}><strong>Forced {forceResult.audience ?? "notification"} test completed.</strong> Recipients {forceResult.recipientCount ?? 0}, sent {forceResult.sent ?? 0}, failed {forceResult.failed ?? 0}.</div> : null}
       {!credentialsReady ? <div className="warningBox">Notification testing is disabled until your Farcaster notification URL and token are saved and notifications are enabled.</div> : null}
       {!status?.cronLoggingReady ? <div className="warningBox"><strong>Cron logging table not found.</strong> Run the included Supabase migration before relying on cron history.</div> : null}
       {maintenanceEnabled ? <div className="criticalBox"><strong>Maintenance mode is enabled.</strong> This only affects gameplay after the setting is wired into app routes.</div> : null}
