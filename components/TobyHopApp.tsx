@@ -4521,6 +4521,9 @@ export function TobyHopApp() {
               todayHopped={user.today_hopped}
               streak={user.current_streak}
               hour={new Date().getHours()}
+              season={todaysPond.season}
+              weather={todaysPond.weather}
+              mood={todaysPond.mood}
               encounter={receipt?.encounter ?? null}
               onFrogCueChange={handleFrogCueChange}
             />
