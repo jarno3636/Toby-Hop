@@ -430,3 +430,305 @@
     display: none;
   }
 }
+
+/* =========================================================
+   SMALL POND MOMENTS
+   Lightweight ambient events. No persistence, controls, or UI.
+   ========================================================= */
+
+.living-bubble-trail {
+  position: absolute;
+  left: 24%;
+  bottom: 84px;
+  width: 110px;
+  height: 82px;
+}
+.living-bubble-trail i {
+  --bubble-index: 0;
+  position: absolute;
+  left: calc(var(--bubble-index) * 19px);
+  bottom: calc((var(--bubble-index) % 2) * 8px);
+  width: calc(7px + (var(--bubble-index) * 1px));
+  height: calc(7px + (var(--bubble-index) * 1px));
+  border: 1px solid rgba(207,255,247,.62);
+  border-radius: 50%;
+  opacity: 0;
+  animation: livingBubbleRise 2.8s ease-out calc(var(--bubble-index) * .34s) 1 both;
+}
+
+.living-reed-rustle {
+  position: absolute;
+  right: 9%;
+  bottom: 75px;
+  width: 48px;
+  height: 105px;
+  transform-origin: 50% 100%;
+  animation: livingReedRustle 4.6s ease-in-out 1 both;
+}
+.living-reed-rustle i {
+  position: absolute;
+  bottom: 0;
+  width: 4px;
+  height: 96px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(#6f9d63, #275d50);
+  transform-origin: 50% 100%;
+}
+.living-reed-rustle i:nth-child(1) { left: 6px; height: 82px; transform: rotate(-8deg); }
+.living-reed-rustle i:nth-child(2) { left: 21px; }
+.living-reed-rustle i:nth-child(3) { left: 35px; height: 90px; transform: rotate(8deg); }
+
+.living-lily-turn {
+  position: absolute;
+  left: 62%;
+  bottom: 91px;
+  width: 58px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #7fbf73, #315e4f 74%);
+  box-shadow: inset 0 0 0 2px rgba(216,255,218,.12), 0 5px 10px rgba(0,0,0,.18);
+  opacity: 0;
+  animation: livingLilyTurn 5.5s ease-in-out 1 both;
+}
+.living-lily-turn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 48%;
+  width: 15px;
+  height: 12px;
+  background: #173f3a;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+.living-floating-feather {
+  position: absolute;
+  top: 26%;
+  left: -12%;
+  color: rgba(239,244,231,.84);
+  font-size: 30px;
+  filter: drop-shadow(0 4px 4px rgba(0,0,0,.2));
+  animation: livingFeatherDrift 8.2s ease-in-out 1 both;
+}
+
+.living-snail {
+  position: absolute;
+  left: -15%;
+  bottom: 78px;
+  width: 44px;
+  height: 23px;
+  border-radius: 60% 45% 35% 40%;
+  background: #71845c;
+  opacity: 0;
+  animation: livingSnailVisit 10.5s linear 1 both;
+}
+.living-snail::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: -8px;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 45% 45%, #a98d63 0 20%, #725637 22% 42%, #b59769 44% 68%, #694f35 70%);
+  box-shadow: 0 2px 5px rgba(0,0,0,.24);
+}
+.living-snail i::before,
+.living-snail i::after {
+  content: '';
+  position: absolute;
+  top: -10px;
+  width: 1px;
+  height: 12px;
+  background: #8da174;
+}
+.living-snail i::before { right: 6px; transform: rotate(-10deg); }
+.living-snail i::after { right: 1px; transform: rotate(10deg); }
+
+.living-duck-family {
+  position: absolute;
+  left: -26%;
+  bottom: 92px;
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  animation: livingDuckFamily 9.5s linear 1 both;
+}
+.living-duck-family i {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 14px;
+  border-radius: 58% 48% 48% 44%;
+  background: #d9b85c;
+  box-shadow: 0 4px 5px rgba(0,0,0,.18);
+}
+.living-duck-family i:first-child { width: 31px; height: 19px; background: #c6c7a6; }
+.living-duck-family i::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -7px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: inherit;
+}
+
+.living-frog-call {
+  position: absolute;
+  right: 14%;
+  bottom: 105px;
+  width: 110px;
+  height: 50px;
+}
+.living-frog-call i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 12px;
+  border: 2px solid rgba(177,255,222,.42);
+  border-left: 0;
+  border-bottom: 0;
+  border-radius: 0 100% 0 0;
+  opacity: 0;
+  animation: livingFrogCall 2.2s ease-out 1 both;
+}
+.living-frog-call i:nth-child(2) {
+  width: 52px;
+  height: 25px;
+  animation-delay: .55s;
+}
+
+.living-firefly-rest {
+  position: absolute;
+  left: 17%;
+  bottom: 145px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff3a2;
+  box-shadow: 0 0 6px #ffe86d, 0 0 17px rgba(255,224,80,.75);
+  opacity: 0;
+  animation: livingFireflyRest 6.8s ease-in-out 1 both;
+}
+
+.living-bottle-glint {
+  position: absolute;
+  left: -18%;
+  bottom: 94px;
+  width: 18px;
+  height: 38px;
+  border: 2px solid rgba(174,235,220,.42);
+  border-radius: 4px 4px 8px 8px;
+  background: rgba(117,194,177,.14);
+  transform: rotate(73deg);
+  animation: livingBottleDrift 7.6s ease-in-out 1 both;
+}
+.living-bottle-glint::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: -9px;
+  width: 7px;
+  height: 9px;
+  border: 2px solid rgba(174,235,220,.42);
+  border-bottom: 0;
+}
+.living-bottle-glint i {
+  position: absolute;
+  right: -3px;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e8fff9;
+  box-shadow: 0 0 10px #c9fff3;
+  animation: livingBottleGlint 2.2s ease-in-out 1.8s 2;
+}
+
+.living-heron-shadow {
+  position: absolute;
+  top: 16%;
+  left: -34%;
+  width: 120px;
+  height: 42px;
+  opacity: 0;
+  filter: blur(1px);
+  animation: livingHeronShadow 5.8s ease-in-out 1 both;
+}
+.living-heron-shadow::before,
+.living-heron-shadow::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  width: 68px;
+  height: 18px;
+  border-radius: 100% 12%;
+  background: rgba(5,20,25,.52);
+}
+.living-heron-shadow::before { left: 0; transform: rotate(-10deg); }
+.living-heron-shadow::after { right: 0; transform: scaleX(-1) rotate(-10deg); }
+
+@keyframes livingBubbleRise {
+  0% { opacity: 0; transform: translateY(14px) scale(.45); }
+  18% { opacity: .8; }
+  80% { opacity: .55; }
+  100% { opacity: 0; transform: translate(16px,-68px) scale(1.05); }
+}
+@keyframes livingReedRustle {
+  0%,100% { opacity: 0; transform: rotate(0); }
+  15%,85% { opacity: .75; }
+  28% { transform: rotate(-7deg); }
+  46% { transform: rotate(6deg); }
+  64% { transform: rotate(-4deg); }
+}
+@keyframes livingLilyTurn {
+  0%,100% { opacity: 0; transform: scale(.72) rotate(-18deg); }
+  18%,82% { opacity: .72; }
+  55% { transform: scale(1) rotate(28deg); }
+}
+@keyframes livingFeatherDrift {
+  0% { opacity: 0; transform: translate3d(0,0,0) rotate(-18deg); }
+  12% { opacity: .82; }
+  45% { transform: translate3d(48vw,90px,0) rotate(45deg); }
+  82% { opacity: .82; }
+  100% { opacity: 0; transform: translate3d(125vw,230px,0) rotate(115deg); }
+}
+@keyframes livingSnailVisit {
+  0% { opacity: 0; transform: translateX(0); }
+  12%,88% { opacity: .8; }
+  100% { opacity: 0; transform: translateX(126vw); }
+}
+@keyframes livingDuckFamily {
+  0% { opacity: 0; transform: translateX(0); }
+  10%,90% { opacity: .78; }
+  100% { opacity: 0; transform: translateX(145vw); }
+}
+@keyframes livingFrogCall {
+  0% { opacity: 0; transform: scale(.35); }
+  28% { opacity: .75; }
+  100% { opacity: 0; transform: scale(2.15); }
+}
+@keyframes livingFireflyRest {
+  0%,100% { opacity: 0; transform: translate(0,16px) scale(.3); }
+  18% { opacity: 1; transform: translate(12px,-18px) scale(1); }
+  42%,72% { opacity: .85; transform: translate(28px,-30px) scale(.8); }
+  88% { opacity: .45; transform: translate(43px,-46px) scale(.55); }
+}
+@keyframes livingBottleDrift {
+  0% { opacity: 0; transform: translateX(0) rotate(73deg); }
+  12%,88% { opacity: .66; }
+  48% { transform: translateX(58vw) translateY(-12px) rotate(86deg); }
+  100% { opacity: 0; transform: translateX(135vw) translateY(8px) rotate(69deg); }
+}
+@keyframes livingBottleGlint {
+  0%,100% { opacity: 0; transform: scale(.4); }
+  50% { opacity: 1; transform: scale(1.8); }
+}
+@keyframes livingHeronShadow {
+  0% { opacity: 0; transform: translateX(0) translateY(12px) scale(.8); }
+  16%,82% { opacity: .58; }
+  100% { opacity: 0; transform: translateX(150vw) translateY(-24px) scale(1.1); }
+}
