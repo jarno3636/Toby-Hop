@@ -22,3 +22,22 @@
 
 @keyframes frogBlinkOnce { 0%,100%{transform:scaleY(0)} 48%,58%{transform:scaleY(1)} }
 @keyframes frogBlinkTwice { 0%,18%,38%,58%,100%{transform:scaleY(0)} 10%,29%,49%{transform:scaleY(1)} }
+
+/* Companion interactions stay subtle and never interrupt the daily hop. */
+.frog-interacting {
+  animation: frogCompanionBounce .62s cubic-bezier(.2,.8,.2,1) 1 both;
+}
+
+.frog-button:not(:disabled)[aria-label*='say hello'] .frog-resting {
+  cursor: pointer;
+}
+
+@keyframes frogCompanionBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  38% { transform: translateY(-9px) scale(1.025,.98); }
+  68% { transform: translateY(1px) scale(.99,1.015); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frog-interacting { animation: none; }
+}
