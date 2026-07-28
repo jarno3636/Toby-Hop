@@ -74,6 +74,41 @@ export type PondEncounter = {
   createdAt: string;
 };
 
+export type PondFind = {
+  key: string;
+  name: string;
+  description: string;
+  rarity: PondEncounterRarity;
+  visualKey: string;
+  timesFound: number;
+  firstFoundAt: string;
+  lastFoundAt: string;
+};
+
+export type PondJournalEntry = {
+  id: string;
+  hopId: string;
+  key: string;
+  name: string;
+  description: string;
+  category: PondEncounterCategory;
+  rarity: PondEncounterRarity;
+  visualKey: string;
+  rewardXp: number;
+  firstDiscovery: boolean;
+  createdAt: string;
+};
+
+export type PondJournal = {
+  availableDiscoveries: number;
+  uniqueDiscoveries: number;
+  rareDiscoveries: number;
+  secretDiscoveries: number;
+  totalDiscoveryXp: number;
+  recentFinds: PondFind[];
+  recentEntries: PondJournalEntry[];
+};
+
 export type HopReceipt = {
   hopId: string;
 
