@@ -15,11 +15,12 @@ export async function POST(request: Request) {
       status: 200,
       headers: { "Cache-Control": "no-store" },
     });
-  } catch (cause) {
+  } catch (error) {
+    console.error("Manual reminder job failed.", error);
     return NextResponse.json(
       {
         success: false,
-        error: cause instanceof Error ? cause.message : "Unable to run reminders.",
+        error: error instanceof Error ? error.message : "The reminder job failed.",
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
