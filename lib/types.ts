@@ -99,6 +99,15 @@ export type PondJournalEntry = {
   createdAt: string;
 };
 
+
+export type PondSecret = {
+  key: string;
+  name: string;
+  description: string;
+  source: string;
+  unlockedAt: string;
+};
+
 export type PondJournal = {
   availableDiscoveries: number;
   uniqueDiscoveries: number;
@@ -107,6 +116,7 @@ export type PondJournal = {
   totalDiscoveryXp: number;
   recentFinds: PondFind[];
   recentEntries: PondJournalEntry[];
+  recentSecrets: PondSecret[];
 };
 
 export type HopReceipt = {
