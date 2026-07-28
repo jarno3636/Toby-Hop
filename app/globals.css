@@ -4294,3 +4294,38 @@ img {
 
 .pond-sound-toggle:active { transform: scale(.93); }
 .pond-sound-toggle:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+/* Keep the ambience control away from the title and moon. */
+.pond-sound-toggle.pond-sound-toggle-lower {
+  top: auto;
+  right: 16px;
+  bottom: 76px;
+  width: auto;
+  min-width: 84px;
+  height: 34px;
+  padding: 0 10px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  background: rgba(3, 24, 27, .62);
+}
+
+.pond-sound-toggle.pond-sound-toggle-lower small {
+  color: rgba(234, 255, 249, .78);
+  font: 700 9px/1 system-ui, sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 420px) {
+  .pond-sound-toggle.pond-sound-toggle-lower {
+    right: 12px;
+    bottom: 72px;
+    min-width: 34px;
+    width: 34px;
+    padding: 0;
+  }
+  .pond-sound-toggle.pond-sound-toggle-lower small { display: none; }
+}
