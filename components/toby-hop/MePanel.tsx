@@ -30,6 +30,25 @@ type Props = {
   onWalletLogout: () => void;
 };
 
+
+function isPondJournal(value: unknown): value is PondJournal {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const journal = value as Partial<PondJournal>;
+
+  return (
+    typeof journal.availableDiscoveries === 'number' &&
+    typeof journal.uniqueDiscoveries === 'number' &&
+    typeof journal.rareDiscoveries === 'number' &&
+    typeof journal.secretDiscoveries === 'number' &&
+    typeof journal.totalDiscoveryXp === 'number' &&
+    Array.isArray(journal.recentFinds) &&
+    Array.isArray(journal.recentEntries)
+  );
+}
+
 const EMPTY_JOURNAL: PondJournal = {
   availableDiscoveries: 0,
   uniqueDiscoveries: 0,
@@ -166,16 +185,22 @@ export function MePanel(props: Props) {
           },
         });
 
-        const payload = (await response.json()) as
-          | PondJournal
-          | { error?: string };
+        const payload: unknown = await response.json();
 
-        if (!response.ok || 'error' in payload) {
-          throw new Error(
-            'error' in payload && payload.error
+        if (!response.ok) {
+          const message =
+            typeof payload === 'object' &&
+            payload !== null &&
+            'error' in payload &&
+            typeof payload.error === 'string'
               ? payload.error
-              : 'Unable to open your pond journal.',
-          );
+              : 'Unable to open your pond journal.';
+
+          throw new Error(message);
+        }
+
+        if (!isPondJournal(payload)) {
+          throw new Error('The pond journal returned an invalid response.');
         }
 
         if (active) {
