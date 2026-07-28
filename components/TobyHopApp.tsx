@@ -518,6 +518,98 @@ async function unlockPondAudio(): Promise<AudioContext | null> {
   return context;
 }
 
+
+
+type PondAmbienceMode = 'day' | 'night' | 'rain' | 'wind';
+
+type PondAmbienceGraph = {
+  context: AudioContext;
+  source: AudioBufferSourceNode;
+  filter: BiquadFilterNode;
+  gain: GainNode;
+  pulse: OscillatorNode;
+  pulseGain: GainNode;
+  mode: PondAmbienceMode;
+};
+
+let sharedPondAmbience: PondAmbienceGraph | null = null;
+
+function stopPondAmbience(): void {
+  const ambience = sharedPondAmbience;
+  sharedPondAmbience = null;
+  if (!ambience) return;
+
+  const now = ambience.context.currentTime;
+  try {
+    ambience.gain.gain.cancelScheduledValues(now);
+    ambience.gain.gain.setTargetAtTime(0.0001, now, 0.12);
+    ambience.pulseGain.gain.cancelScheduledValues(now);
+    ambience.pulseGain.gain.setTargetAtTime(0.0001, now, 0.12);
+    ambience.source.stop(now + 0.45);
+    ambience.pulse.stop(now + 0.45);
+  } catch {
+    // Nodes may already be stopped during fast navigation or hot reload.
+  }
+}
+
+async function startPondAmbience(mode: PondAmbienceMode, enabled = true): Promise<void> {
+  if (!enabled) {
+    stopPondAmbience();
+    return;
+  }
+
+  const context = await unlockPondAudio();
+  if (!context || context.state !== 'running') return;
+  if (sharedPondAmbience?.context === context && sharedPondAmbience.mode === mode) return;
+
+  stopPondAmbience();
+
+  const seconds = 3;
+  const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
+  const channel = buffer.getChannelData(0);
+  for (let index = 0; index < channel.length; index += 1) {
+    const slowSwell = 0.55 + Math.sin((index / channel.length) * Math.PI * 8) * 0.18;
+    channel[index] = (Math.random() * 2 - 1) * slowSwell;
+  }
+
+  const source = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  const pulse = context.createOscillator();
+  const pulseGain = context.createGain();
+  const now = context.currentTime;
+
+  source.buffer = buffer;
+  source.loop = true;
+  filter.type = mode === 'rain' ? 'bandpass' : 'lowpass';
+  filter.frequency.setValueAtTime(
+    mode === 'rain' ? 1450 : mode === 'wind' ? 720 : mode === 'night' ? 430 : 560,
+    now,
+  );
+  filter.Q.setValueAtTime(mode === 'rain' ? 0.45 : 0.8, now);
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(
+    mode === 'rain' ? 0.052 : mode === 'wind' ? 0.026 : 0.018,
+    now + 0.9,
+  );
+
+  pulse.type = 'sine';
+  pulse.frequency.setValueAtTime(mode === 'night' ? 76 : 92, now);
+  pulseGain.gain.setValueAtTime(0.0001, now);
+  pulseGain.gain.exponentialRampToValueAtTime(mode === 'rain' ? 0.008 : 0.005, now + 1.1);
+
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(context.destination);
+  pulse.connect(pulseGain);
+  pulseGain.connect(context.destination);
+  source.start(now);
+  pulse.start(now);
+
+  sharedPondAmbience = { context, source, filter, gain, pulse, pulseGain, mode };
+}
+
 function playHopLaunchSound(): void {
   const context =
     createAudioContext();
@@ -1222,6 +1314,9 @@ export function TobyHopApp() {
   const [companionMessage, setCompanionMessage] =
     useState<string | null>(null);
 
+  const [companionSpin, setCompanionSpin] =
+    useState(false);
+
   const [soundEnabled, setSoundEnabled] =
     useState(true);
 
@@ -1239,30 +1334,9 @@ export function TobyHopApp() {
     if (stored !== null) setSoundEnabled(stored === 'true');
     return () => {
       if (companionResetRef.current) window.clearTimeout(companionResetRef.current);
+      stopPondAmbience();
     };
   }, []);
-
-  useEffect(() => {
-    if (!soundEnabled) return;
-
-    const unlockOnFirstGesture = () => {
-      void unlockPondAudio();
-    };
-
-    window.addEventListener('pointerdown', unlockOnFirstGesture, { once: true, passive: true });
-    return () => window.removeEventListener('pointerdown', unlockOnFirstGesture);
-  }, [soundEnabled]);
-
-  const toggleSound = useCallback(async () => {
-    const next = !soundEnabled;
-    setSoundEnabled(next);
-    window.localStorage.setItem('toby_hop_sound_enabled', String(next));
-
-    if (next) {
-      await unlockPondAudio();
-      playPondSound('sparkle', true);
-    }
-  }, [soundEnabled]);
 
   const showCompanionCue = useCallback((cue: FrogCue, duration = 900) => {
     if (companionResetRef.current) window.clearTimeout(companionResetRef.current);
@@ -1270,6 +1344,7 @@ export function TobyHopApp() {
     companionResetRef.current = window.setTimeout(() => {
       setCompanionCue(null);
       setCompanionMessage(null);
+      setCompanionSpin(false);
       companionResetRef.current = null;
     }, duration);
   }, []);
@@ -1356,6 +1431,43 @@ export function TobyHopApp() {
         ),
       [todaysPond],
     );
+
+
+  const pondAmbienceMode: PondAmbienceMode =
+    todaysPond.weather === 'rain' || todaysPond.weather === 'drizzle'
+      ? 'rain'
+      : todaysPond.weather === 'wind'
+        ? 'wind'
+        : new Date().getHours() >= 19 || new Date().getHours() < 6
+          ? 'night'
+          : 'day';
+
+  useEffect(() => {
+    if (!soundEnabled || view !== 'hop') {
+      stopPondAmbience();
+      return;
+    }
+
+    const unlockOnFirstGesture = () => {
+      void startPondAmbience(pondAmbienceMode, true);
+    };
+
+    window.addEventListener('pointerdown', unlockOnFirstGesture, { once: true, passive: true });
+    return () => window.removeEventListener('pointerdown', unlockOnFirstGesture);
+  }, [pondAmbienceMode, soundEnabled, view]);
+
+  const toggleSound = useCallback(async () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    window.localStorage.setItem('toby_hop_sound_enabled', String(next));
+
+    if (next) {
+      await startPondAmbience(pondAmbienceMode, true);
+      playPondSound('sparkle', true);
+    } else {
+      stopPondAmbience();
+    }
+  }, [pondAmbienceMode, soundEnabled]);
 
 
   const particles =
@@ -3612,7 +3724,7 @@ export function TobyHopApp() {
 
 
   async function handleTobyPress() {
-    await unlockPondAudio();
+    await startPondAmbience(pondAmbienceMode, soundEnabled);
 
     if (!user.today_hopped) {
       await performHop();
@@ -3629,10 +3741,12 @@ export function TobyHopApp() {
       { cue: 'smile', message: '✦' },
     ];
     const reaction = reactions[(tap - 1) % reactions.length] ?? reactions[0];
+    const shouldSpin = tap % 7 === 0;
 
-    setCompanionMessage(reaction.message);
-    showCompanionCue(reaction.cue, tap % 5 === 0 ? 1_500 : 1_100);
-    playPondSound(tap % 5 === 0 ? 'water' : 'companion', soundEnabled);
+    setCompanionSpin(shouldSpin);
+    setCompanionMessage(shouldSpin ? 'WHEEE!' : reaction.message);
+    showCompanionCue(shouldSpin ? 'smile' : reaction.cue, shouldSpin ? 1_850 : tap % 5 === 0 ? 1_500 : 1_100);
+    playPondSound(shouldSpin ? 'rare' : tap % 5 === 0 ? 'water' : 'companion', soundEnabled);
     await provideTapFeedback();
   }
 
@@ -4446,16 +4560,6 @@ export function TobyHopApp() {
               .filter(Boolean)
               .join(' ')}
           >
-            <button
-              type="button"
-              className="pond-sound-toggle"
-              onClick={toggleSound}
-              aria-label={soundEnabled ? 'Mute pond sounds' : 'Turn on pond sounds'}
-              aria-pressed={soundEnabled}
-            >
-              {soundEnabled ? '🔊' : '🔇'}
-            </button>
-
             <div className="hop-copy">
               <h1>
                 {user.today_hopped
@@ -4734,6 +4838,10 @@ export function TobyHopApp() {
                   companionCue
                     ? 'frog-interacting'
                     : '',
+
+                  companionSpin
+                    ? 'frog-coin-spin'
+                    : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -4767,6 +4875,17 @@ export function TobyHopApp() {
                 !user.today_hopped && (
                   <div className="tap-ring" />
                 )}
+            </button>
+
+            <button
+              type="button"
+              className="pond-sound-toggle pond-sound-toggle-lower"
+              onClick={toggleSound}
+              aria-label={soundEnabled ? 'Mute pond ambience' : 'Turn on pond ambience'}
+              aria-pressed={soundEnabled}
+            >
+              <span aria-hidden="true">{soundEnabled ? '🔊' : '🔇'}</span>
+              <small>{soundEnabled ? 'Pond on' : 'Pond off'}</small>
             </button>
 
             <div
