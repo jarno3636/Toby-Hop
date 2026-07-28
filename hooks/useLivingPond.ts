@@ -9,10 +9,10 @@ import {
   type LivingPondEventId,
 } from '@/lib/living-pond';
 
-const FIRST_EVENT_MIN_MS = 9_000;
-const FIRST_EVENT_MAX_MS = 18_000;
-const EVENT_GAP_MIN_MS = 24_000;
-const EVENT_GAP_MAX_MS = 58_000;
+const FIRST_EVENT_MIN_MS = 3_800;
+const FIRST_EVENT_MAX_MS = 8_500;
+const EVENT_GAP_MIN_MS = 16_000;
+const EVENT_GAP_MAX_MS = 39_000;
 const FROG_CUE_MIN_MS = 8_000;
 const FROG_CUE_MAX_MS = 19_000;
 
