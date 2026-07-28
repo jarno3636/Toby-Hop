@@ -1,11 +1,13 @@
 export type TobyHopNotificationType =
-  | "test"
-  | "daily_hop_reminder"
-  | "streak_warning"
-  | "golden_toby"
-  | "rainbow_pond"
-  | "seasonal_event"
-  | "system";
+  | 'test'
+  | 'daily_hop_reminder'
+  | 'streak_warning'
+  | 'rare_discovery'
+  | 'streak_milestone'
+  | 'golden_toby'
+  | 'rainbow_pond'
+  | 'seasonal_event'
+  | 'system';
 
 export type SendTobyHopNotificationInput = {
   fid: number;
@@ -29,18 +31,18 @@ export type FarcasterNotificationResponse = {
 };
 
 export type NotificationDeliveryStatus =
-  | "pending"
-  | "sent"
-  | "delivered"
-  | "invalid_token"
-  | "rate_limited"
-  | "failed"
-  | "skipped";
+  | 'pending'
+  | 'sent'
+  | 'delivered'
+  | 'invalid_token'
+  | 'rate_limited'
+  | 'failed'
+  | 'skipped';
 
 export type SendTobyHopNotificationResult =
   | {
       success: true;
-      status: "sent";
+      status: 'sent';
       fid: number;
       notificationId: string;
       httpStatus: number;
@@ -50,12 +52,12 @@ export type SendTobyHopNotificationResult =
   | {
       success: false;
       status:
-        | "disabled"
-        | "missing_credentials"
-        | "invalid_token"
-        | "rate_limited"
-        | "failed"
-        | "duplicate";
+        | 'disabled'
+        | 'missing_credentials'
+        | 'invalid_token'
+        | 'rate_limited'
+        | 'failed'
+        | 'duplicate';
       fid: number;
       notificationId: string;
       httpStatus?: number;
