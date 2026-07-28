@@ -480,23 +480,42 @@ async function safeCopyToClipboard(
   }
 }
 
-function createAudioContext():
-AudioContext | null {
-  try {
-    const AudioContextConstructor =
-      window.AudioContext ??
-      (
-        window as WindowWithWebkitAudio
-      ).webkitAudioContext;
+let sharedPondAudioContext: AudioContext | null = null;
 
-    if (!AudioContextConstructor) {
-      return null;
+function createAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    if (sharedPondAudioContext && sharedPondAudioContext.state !== 'closed') {
+      return sharedPondAudioContext;
     }
 
-    return new AudioContextConstructor();
+    const AudioContextConstructor =
+      window.AudioContext ??
+      (window as WindowWithWebkitAudio).webkitAudioContext;
+
+    if (!AudioContextConstructor) return null;
+
+    sharedPondAudioContext = new AudioContextConstructor();
+    return sharedPondAudioContext;
   } catch {
     return null;
   }
+}
+
+async function unlockPondAudio(): Promise<AudioContext | null> {
+  const context = createAudioContext();
+  if (!context) return null;
+
+  if (context.state === 'suspended') {
+    try {
+      await context.resume();
+    } catch {
+      return null;
+    }
+  }
+
+  return context;
 }
 
 function playHopLaunchSound(): void {
@@ -573,11 +592,6 @@ function playHopLaunchSound(): void {
   oscillator.stop(
     start + 0.3,
   );
-
-  window.setTimeout(() => {
-    void context.close()
-      .catch(() => undefined);
-  }, 500);
 }
 
 function playHopLandingSound(): void {
@@ -703,11 +717,6 @@ function playHopLandingSound(): void {
   second.stop(
     start + 0.4,
   );
-
-  window.setTimeout(() => {
-    void context.close()
-      .catch(() => undefined);
-  }, 650);
 }
 
 
@@ -725,7 +734,7 @@ function playPondSound(kind: PondSoundKind, enabled = true): void {
 
   const context = createAudioContext();
   if (!context) return;
-  void context.resume().catch(() => undefined);
+  if (context.state !== 'running') return;
 
   const start = context.currentTime;
   const oscillator = context.createOscillator();
@@ -756,7 +765,6 @@ function playPondSound(kind: PondSoundKind, enabled = true): void {
   gain.connect(context.destination);
   oscillator.start(start);
   oscillator.stop(start + 0.26);
-  window.setTimeout(() => void context.close().catch(() => undefined), 450);
 }
 
 function pondEventSound(event: LivingPondEventDefinition): PondSoundKind {
@@ -1211,6 +1219,9 @@ export function TobyHopApp() {
   const [companionCue, setCompanionCue] =
     useState<FrogCue | null>(null);
 
+  const [companionMessage, setCompanionMessage] =
+    useState<string | null>(null);
+
   const [soundEnabled, setSoundEnabled] =
     useState(true);
 
@@ -1231,20 +1242,34 @@ export function TobyHopApp() {
     };
   }, []);
 
-  const toggleSound = useCallback(() => {
-    setSoundEnabled((current) => {
-      const next = !current;
-      window.localStorage.setItem('toby_hop_sound_enabled', String(next));
-      if (next) playPondSound('sparkle', true);
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    if (!soundEnabled) return;
+
+    const unlockOnFirstGesture = () => {
+      void unlockPondAudio();
+    };
+
+    window.addEventListener('pointerdown', unlockOnFirstGesture, { once: true, passive: true });
+    return () => window.removeEventListener('pointerdown', unlockOnFirstGesture);
+  }, [soundEnabled]);
+
+  const toggleSound = useCallback(async () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    window.localStorage.setItem('toby_hop_sound_enabled', String(next));
+
+    if (next) {
+      await unlockPondAudio();
+      playPondSound('sparkle', true);
+    }
+  }, [soundEnabled]);
 
   const showCompanionCue = useCallback((cue: FrogCue, duration = 900) => {
     if (companionResetRef.current) window.clearTimeout(companionResetRef.current);
     setCompanionCue(cue);
     companionResetRef.current = window.setTimeout(() => {
       setCompanionCue(null);
+      setCompanionMessage(null);
       companionResetRef.current = null;
     }, duration);
   }, []);
@@ -3587,6 +3612,8 @@ export function TobyHopApp() {
 
 
   async function handleTobyPress() {
+    await unlockPondAudio();
+
     if (!user.today_hopped) {
       await performHop();
       return;
@@ -3594,8 +3621,17 @@ export function TobyHopApp() {
 
     companionTapRef.current += 1;
     const tap = companionTapRef.current;
-    const cues: FrogCue[] = ['curious', 'glance-left', 'glance-right', 'double-blink', 'smile'];
-    showCompanionCue(cues[(tap - 1) % cues.length] ?? 'curious', tap % 5 === 0 ? 1_350 : 900);
+    const reactions: Array<{ cue: FrogCue; message: string }> = [
+      { cue: 'curious', message: '?' },
+      { cue: 'glance-left', message: 'ribbit' },
+      { cue: 'glance-right', message: 'oh!' },
+      { cue: 'double-blink', message: '...' },
+      { cue: 'smile', message: '✦' },
+    ];
+    const reaction = reactions[(tap - 1) % reactions.length] ?? reactions[0];
+
+    setCompanionMessage(reaction.message);
+    showCompanionCue(reaction.cue, tap % 5 === 0 ? 1_500 : 1_100);
     playPondSound(tap % 5 === 0 ? 'water' : 'companion', soundEnabled);
     await provideTapFeedback();
   }
@@ -4417,7 +4453,7 @@ export function TobyHopApp() {
               aria-label={soundEnabled ? 'Mute pond sounds' : 'Turn on pond sounds'}
               aria-pressed={soundEnabled}
             >
-              {soundEnabled ? '♪' : '×'}
+              {soundEnabled ? '🔊' : '🔇'}
             </button>
 
             <div className="hop-copy">
@@ -4702,6 +4738,17 @@ export function TobyHopApp() {
                   .filter(Boolean)
                   .join(' ')}
               >
+                {companionMessage && (
+                  <span className="frog-reaction-bubble" aria-hidden="true">
+                    {companionMessage}
+                  </span>
+                )}
+                {companionCue && (
+                  <>
+                    <span className="frog-companion-splash splash-left" aria-hidden="true" />
+                    <span className="frog-companion-splash splash-right" aria-hidden="true" />
+                  </>
+                )}
                 <div className="frog-body" />
                 <div className="eye left" />
                 <div className="eye right" />
