@@ -32,6 +32,9 @@ function collectCandidates(event: TobyEvent): SecretCandidate[] {
   const pondTheme = readString(metadata, 'pondTheme');
   const moonPhase = readString(metadata, 'moonPhase');
   const encounterCategory = readString(metadata, 'encounterCategory');
+  const weather = readString(metadata, 'pondWeather');
+  const season = readString(metadata, 'pondSeason');
+  const mood = readString(metadata, 'pondMood');
   const occurredAt = event.timestamp ?? new Date();
   const hour = occurredAt.getUTCHours();
 
@@ -87,6 +90,26 @@ function collectCandidates(event: TobyEvent): SecretCandidate[] {
       description: 'You were present when Golden Toby surfaced.',
       source: 'encounter',
     });
+  }
+
+  if (weather === 'fog') {
+    candidates.push({ key: 'mist_walker', name: 'Mist Walker', description: 'You crossed the pond while the shoreline was hidden in fog.', source: 'weather' });
+  }
+
+  if (weather === 'wind') {
+    candidates.push({ key: 'reed_reader', name: 'Reed Reader', description: 'You listened while the wind translated the reeds.', source: 'weather' });
+  }
+
+  if (season === 'spring' && totalHops >= 3) {
+    candidates.push({ key: 'spring_witness', name: 'Spring Witness', description: 'You returned while new life stirred beneath the water.', source: 'season' });
+  }
+
+  if (season === 'autumn' && streak >= 5) {
+    candidates.push({ key: 'keeper_of_leaves', name: 'Keeper of Leaves', description: 'Five autumn returns left a trail of gold across your journal.', source: 'season' });
+  }
+
+  if (mood === 'mysterious' && (hour >= 21 || hour < 5)) {
+    candidates.push({ key: 'after_the_reeds', name: 'After the Reeds', description: 'You stayed when the pond felt different and the shore went quiet.', source: 'mood' });
   }
 
   const seasonal = getSeasonalEvent(occurredAt);
