@@ -1403,6 +1403,15 @@ export async function POST(
           moonPhase:
             pond.moonPhase,
 
+          pondWeather:
+            pond.weather,
+
+          pondSeason:
+            pond.season,
+
+          pondMood:
+            pond.mood,
+
           goldenTobyDay:
             pond.goldenToby,
         },
