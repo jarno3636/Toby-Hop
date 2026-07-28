@@ -1212,6 +1212,9 @@ export function TobyHopApp() {
   const initializationStartedRef =
     useRef(false);
 
+  const addMiniAppPromptStartedRef =
+    useRef(false);
+
   const todaysPond =
     useMemo(
       () =>
@@ -1920,6 +1923,46 @@ export function TobyHopApp() {
         resetAppSession,
       ],
     );
+
+  useEffect(() => {
+    if (
+      !initialAuthResolved ||
+      !farcasterAvailable ||
+      !farcasterUser ||
+      miniAppAdded ||
+      addMiniAppPromptStartedRef.current
+    ) {
+      return;
+    }
+
+    addMiniAppPromptStartedRef.current =
+      true;
+
+    const timer =
+      window.setTimeout(() => {
+        void withTimeout(
+          sdk.actions.addMiniApp(),
+          SDK_TIMEOUT_MS * 2,
+          'Add Mini App timed out.',
+        )
+          .then(() => {
+            setMiniAppAdded(true);
+          })
+          .catch(() => {
+            // The user may dismiss the native prompt. Do not reopen it
+            // repeatedly during the same app session.
+          });
+      }, 650);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    farcasterAvailable,
+    farcasterUser,
+    initialAuthResolved,
+    miniAppAdded,
+  ]);
 
   useEffect(() => {
     if (
@@ -3689,28 +3732,6 @@ export function TobyHopApp() {
         }
       }
 
-      if (
-        farcasterUser &&
-        !miniAppAdded
-      ) {
-        try {
-          await withTimeout(
-            sdk.actions
-              .addMiniApp(),
-
-            SDK_TIMEOUT_MS *
-              2,
-
-            'Add Mini App timed out.',
-          );
-
-          setMiniAppAdded(
-            true,
-          );
-        } catch {
-          // Optional.
-        }
-      }
     } catch (cause) {
       const message =
         getErrorMessage(
