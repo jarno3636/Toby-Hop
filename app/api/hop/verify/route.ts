@@ -1131,6 +1131,12 @@ export async function POST(
       result.hop_id,
       castText,
     );
+    await processDailyChallenges({
+  fid: identity.fid,
+  hopId: result.hop_id,
+  streak: result.streak_after,
+  totalHops: result.total_hops_after,
+});
 
     return jsonResponse({
       hopId:
