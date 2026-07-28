@@ -20,6 +20,12 @@
   --gold: #ffd77a;
   --danger: #ffd0d0;
 
+  --encounter-duration: 5.8s;
+  --discovery-glow: rgba(103, 243, 216, 0.34);
+  --rare-glow: rgba(184, 143, 255, 0.38);
+  --secret-glow: rgba(129, 78, 218, 0.42);
+  --golden-glow: rgba(255, 208, 74, 0.48);
+
   --glass: rgba(7, 35, 39, 0.72);
   --glass-strong: rgba(5, 29, 33, 0.9);
 
