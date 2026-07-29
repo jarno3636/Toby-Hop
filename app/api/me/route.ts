@@ -363,6 +363,8 @@ export async function GET() {
         season: pond.season,
         mood: pond.mood,
         moonPhase: pond.moonPhase,
+        eventLabel: pond.eventLabel,
+        dayKey: getUtcDayKey(),
         forecastName: pond.forecast.name,
         forecastEmoji: pond.forecast.emoji,
         forecastHint: pond.forecast.hint,
