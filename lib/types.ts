@@ -125,6 +125,8 @@ export type PondJournalConditions = {
   season: string;
   mood: string;
   moonPhase: string;
+  eventLabel: string;
+  dayKey: string;
   forecastName: string;
   forecastEmoji: string;
   forecastHint: string;

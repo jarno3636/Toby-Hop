@@ -25,6 +25,8 @@ export type PondSeason = 'spring' | 'summer' | 'autumn' | 'winter';
 export type PondWeather = 'clear' | 'drizzle' | 'rain' | 'fog' | 'wind' | 'snow';
 export type PondMood = 'bright' | 'quiet' | 'restless' | 'mysterious' | 'glowing';
 
+export type PondEventKind = 'moonlight' | 'rainfall' | 'firefly-bloom' | 'blossom-drift' | 'winter-stillness' | 'autumn-drift' | 'lotus-bloom' | 'rainbow' | 'starfall';
+
 export type PondForecast = {
   dayKey: string;
   weather: PondWeather;
@@ -49,6 +51,10 @@ export type TodaysPond = {
   curiosityTitle: string;
   curiosityBody: string;
   forecast: PondForecast;
+  eventKind: PondEventKind;
+  eventLabel: string;
+  weatherLabel: string;
+  weatherEmoji: string;
 };
 
 export const GOLDEN_TOBY_ODDS = 1000;
@@ -56,7 +62,7 @@ export const GOLDEN_TOBY_PERCENT = 100 / GOLDEN_TOBY_ODDS;
 export const STARFALL_ODDS = 97;
 export const STARFALL_PERCENT = 100 / STARFALL_ODDS;
 
-const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'weather' | 'mood' | 'curiosityTitle' | 'curiosityBody' | 'forecast'>> = [
+const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'weather' | 'mood' | 'curiosityTitle' | 'curiosityBody' | 'forecast' | 'eventKind' | 'eventLabel' | 'weatherLabel' | 'weatherEmoji'>> = [
   { id: 'moon', name: 'Moonlit Pond', emoji: '🌙', description: 'Still water beneath the moon', particleCount: 0 },
   { id: 'rain', name: 'Rainy Pond', emoji: '🌧️', description: 'Soft rain ripples across the pond', particle: 'drop', particleCount: 18 },
   { id: 'fireflies', name: 'Firefly Pond', emoji: '✨', description: 'Tiny lights dance above the reeds', particle: 'firefly', particleCount: 13 },
@@ -67,6 +73,28 @@ const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'we
   { id: 'rainbow', name: 'Rainbow Pond', emoji: '🌈', description: 'A rainbow stretches across the pond', particleCount: 0 },
   { id: 'shooting-star', name: 'Starfall Pond', emoji: '⭐', description: 'Keep your eyes on the night sky', particleCount: 0 },
 ];
+
+
+const EVENT_DETAILS: Record<PondThemeId, { kind: PondEventKind; label: string }> = {
+  moon: { kind: 'moonlight', label: 'Moonlight' },
+  rain: { kind: 'rainfall', label: 'Rainfall' },
+  fireflies: { kind: 'firefly-bloom', label: 'Firefly Bloom' },
+  blossom: { kind: 'blossom-drift', label: 'Blossom Drift' },
+  winter: { kind: 'winter-stillness', label: 'Winter Stillness' },
+  autumn: { kind: 'autumn-drift', label: 'Autumn Drift' },
+  lotus: { kind: 'lotus-bloom', label: 'Lotus Bloom' },
+  rainbow: { kind: 'rainbow', label: 'Rainbow' },
+  'shooting-star': { kind: 'starfall', label: 'Starfall' },
+};
+
+const WEATHER_DETAILS: Record<PondWeather, { label: string; emoji: string }> = {
+  clear: { label: 'Clear', emoji: '☀️' },
+  drizzle: { label: 'Drizzle', emoji: '🌦️' },
+  rain: { label: 'Rain', emoji: '🌧️' },
+  fog: { label: 'Fog', emoji: '🌫️' },
+  wind: { label: 'Wind', emoji: '🍃' },
+  snow: { label: 'Snow', emoji: '❄️' },
+};
 
 const MOON_PHASES: readonly MoonPhase[] = [
   'new', 'waxing-crescent', 'first-quarter', 'waxing-gibbous',
@@ -124,11 +152,9 @@ function getCuriosityCopy(theme: PondThemeId, weather: PondWeather, moonPhase: M
   return { title: 'The pond feels alive today', body: 'A small visitor may appear if you stay for a moment.' };
 }
 
-function getForecast(date: Date): PondForecast {
+function buildForecast(date: Date): PondForecast {
   const tomorrow = new Date(date.getTime() + 86_400_000);
-  const dayKey = getUtcDayKey(tomorrow);
-  const season = getPondSeason(tomorrow);
-  const weather = getWeather(dayKey, season);
+  const tomorrowPond = buildDailyPond(tomorrow, false);
   const copy: Record<PondWeather, { name: string; emoji: string; hint: string }> = {
     clear: { name: 'Clear water', emoji: '☀️', hint: 'Dragonflies and butterflies may be active.' },
     drizzle: { name: 'Light drizzle', emoji: '🌦️', hint: 'Snails and soft frog calls become more likely.' },
@@ -137,10 +163,15 @@ function getForecast(date: Date): PondForecast {
     wind: { name: 'Wind in the reeds', emoji: '🍃', hint: 'Feathers and passing shadows may cross the pond.' },
     snow: { name: 'Winter stillness', emoji: '❄️', hint: 'The owl and tiny tracks become easier to notice.' },
   };
-  return { dayKey, season, weather, ...copy[weather] };
+  return {
+    dayKey: getUtcDayKey(tomorrow),
+    season: tomorrowPond.season,
+    weather: tomorrowPond.weather,
+    ...copy[tomorrowPond.weather],
+  };
 }
 
-export function getTodaysPond(date = new Date()): TodaysPond {
+function buildDailyPond(date: Date, includeForecast: boolean): TodaysPond {
   const dayKey = getUtcDayKey(date);
   const pondSeed = hashString(`pond:${dayKey}`);
   const moonSeed = hashString(`moon:${dayKey}`);
@@ -154,6 +185,8 @@ export function getTodaysPond(date = new Date()): TodaysPond {
   const season = getPondSeason(date);
   const weather = theme.id === 'rain' ? 'rain' : theme.id === 'winter' ? 'snow' : getWeather(dayKey, season);
   const curiosity = getCuriosityCopy(theme.id, weather, moonPhase);
+  const event = EVENT_DETAILS[theme.id];
+  const weatherDetails = WEATHER_DETAILS[weather];
 
   return {
     ...theme,
@@ -164,6 +197,23 @@ export function getTodaysPond(date = new Date()): TodaysPond {
     mood: getMood(theme.id, weather),
     curiosityTitle: curiosity.title,
     curiosityBody: curiosity.body,
-    forecast: getForecast(date),
+    forecast: includeForecast
+      ? buildForecast(date)
+      : {
+          dayKey,
+          season,
+          weather,
+          name: weatherDetails.label,
+          emoji: weatherDetails.emoji,
+          hint: '',
+        },
+    eventKind: event.kind,
+    eventLabel: event.label,
+    weatherLabel: weatherDetails.label,
+    weatherEmoji: weatherDetails.emoji,
   };
+}
+
+export function getTodaysPond(date = new Date()): TodaysPond {
+  return buildDailyPond(date, true);
 }
