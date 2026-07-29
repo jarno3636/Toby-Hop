@@ -35,6 +35,8 @@ function collectCandidates(event: TobyEvent): SecretCandidate[] {
   const weather = readString(metadata, 'pondWeather');
   const season = readString(metadata, 'pondSeason');
   const mood = readString(metadata, 'pondMood');
+  const pondEvent = readString(metadata, 'pondEvent');
+  const macroEvent = readString(metadata, 'pondMacroEvent');
   const occurredAt = event.timestamp ?? new Date();
   const hour = occurredAt.getUTCHours();
 
@@ -110,6 +112,55 @@ function collectCandidates(event: TobyEvent): SecretCandidate[] {
 
   if (mood === 'mysterious' && (hour >= 21 || hour < 5)) {
     candidates.push({ key: 'after_the_reeds', name: 'After the Reeds', description: 'You stayed when the pond felt different and the shore went quiet.', source: 'mood' });
+  }
+
+
+  if (weather === 'drizzle') {
+    candidates.push({ key: 'silver_drizzle', name: 'Silver Drizzle', description: 'You crossed while the smallest rain stitched silver rings into the pond.', source: 'weather' });
+  }
+
+  if (weather === 'snow') {
+    candidates.push({ key: 'winter_footprints', name: 'Winter Footprints', description: 'You found tiny tracks where the snow met the reeds.', source: 'weather' });
+  }
+
+  if (weather === 'clear' && moonPhase === 'full' && (hour >= 19 || hour < 5)) {
+    candidates.push({ key: 'mirror_moon', name: 'Mirror Moon', description: 'The full moon appeared twice: once above and once below.', source: 'combination' });
+  }
+
+  if (weather === 'rain' && moonPhase === 'full') {
+    candidates.push({ key: 'moon_rain', name: 'Moon Rain', description: 'Moonlight survived every ripple of the rain.', source: 'combination' });
+  }
+
+  if (pondEvent === 'firefly-bloom' && weather === 'fog') {
+    candidates.push({ key: 'lights_in_the_mist', name: 'Lights in the Mist', description: 'Fireflies turned the fog into a field of distant stars.', source: 'combination' });
+  }
+
+  if (pondEvent === 'rainbow' && weather === 'drizzle') {
+    candidates.push({ key: 'rain_after_color', name: 'Rain After Color', description: 'A rainbow held its shape while the drizzle continued.', source: 'combination' });
+  }
+
+  if (pondEvent === 'lotus-bloom' && moonPhase === 'full') {
+    candidates.push({ key: 'moon_lotus_keeper', name: 'Moon Lotus Keeper', description: 'A lotus opened only after the moon found it.', source: 'combination' });
+  }
+
+  if (season === 'summer' && pondEvent === 'firefly-bloom') {
+    candidates.push({ key: 'summer_lanterns', name: 'Summer Lanterns', description: 'You found the reeds lit by a hundred tiny summer lamps.', source: 'season' });
+  }
+
+  if (season === 'winter' && totalHops >= 10) {
+    candidates.push({ key: 'winter_regular', name: 'Winter Regular', description: 'Even the cold pond recognized your return.', source: 'season' });
+  }
+
+  if (streak >= 30) {
+    candidates.push({ key: 'thirty_still_mornings', name: 'Thirty Still Mornings', description: 'Thirty unbroken returns taught the pond your footsteps.', source: 'streak' });
+  }
+
+  if (streak >= 100) {
+    candidates.push({ key: 'the_long_patience', name: 'The Long Patience', description: 'One hundred quiet returns made you part of the shoreline.', source: 'streak' });
+  }
+
+  if (macroEvent === 'world_animal_day') {
+    candidates.push({ key: 'tracks_everywhere', name: 'Tracks Everywhere', description: 'Every bank, reed, and muddy stone carried a visitor’s sign.', source: 'macro_event' });
   }
 
   const seasonal = getSeasonalEvent(occurredAt);
