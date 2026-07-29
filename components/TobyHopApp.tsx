@@ -125,6 +125,8 @@ type SpecialPondState = {
   autumn: boolean;
   lotus: boolean;
   golden: boolean;
+  fog: boolean;
+  wind: boolean;
 };
 
 type WindowWithWebkitAudio =
@@ -1166,6 +1168,8 @@ function buildSpecialPondState(
     rain:
       !isRainbow &&
       (
+        pond.weather === 'rain' ||
+        pond.weather === 'drizzle' ||
         id === 'rain' ||
         id.includes(
           'rainy',
@@ -1178,6 +1182,7 @@ function buildSpecialPondState(
       ),
 
     snow:
+      pond.weather === 'snow' ||
       id.includes(
         'snow',
       ) ||
@@ -1237,6 +1242,12 @@ function buildSpecialPondState(
       Boolean(
         pond.goldenToby,
       ),
+
+    fog:
+      pond.weather === 'fog',
+
+    wind:
+      pond.weather === 'wind',
   };
 }
 
@@ -4368,6 +4379,14 @@ export function TobyHopApp() {
           ? 'golden-toby-day'
           : '',
 
+        specialPond.fog
+          ? 'special-fog'
+          : '',
+
+        specialPond.wind
+          ? 'special-wind'
+          : '',
+
         busy
           ? 'hop-is-busy'
           : '',
@@ -4832,6 +4851,22 @@ export function TobyHopApp() {
             <div className="reed r2" />
             <div className="reed r3" />
 
+            {specialPond.fog ? (
+              <div className="pond-weather-fog" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : null}
+
+            {specialPond.wind ? (
+              <div className="pond-weather-wind" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : null}
+
             <div className="water" />
 
             <div className="ripple ripple-one" />
@@ -5091,6 +5126,21 @@ export function TobyHopApp() {
               Boolean(
                 todaysPond.goldenToby,
               ),
+
+            weather:
+              todaysPond.weatherLabel,
+
+            weatherEmoji:
+              todaysPond.weatherEmoji,
+
+            season:
+              todaysPond.season,
+
+            mood:
+              todaysPond.mood,
+
+            eventLabel:
+              todaysPond.eventLabel,
           }}
           conditions={
             specialPond
