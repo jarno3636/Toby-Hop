@@ -544,7 +544,6 @@ function createPondAmbiencePlayer(): PondAmbiencePlayer | null {
     audio.loop = true;
     audio.preload = 'auto';
     audio.volume = 0;
-    audio.playsInline = true;
   }
 
   sharedPondAmbiencePlayer = {
