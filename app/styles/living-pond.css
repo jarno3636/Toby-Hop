@@ -750,3 +750,26 @@
 @keyframes livingGooseCross { 0%{opacity:0;transform:translateX(0) rotate(-7deg)} 12%,84%{opacity:.7} 100%{opacity:0;transform:translateX(145vw) rotate(-7deg)} }
 @keyframes livingMoonLotus { 0%,100%{opacity:0;transform:translateY(20px) scale(.5)} 35%{opacity:1;transform:translateY(0) scale(1.15)} 70%{opacity:.7;transform:translateY(-5px) scale(1)} }
 @keyframes livingPondWhisper { 0%,100%{opacity:0;filter:blur(5px)} 35%,65%{opacity:.68;filter:blur(0)} }
+
+/* Living Pond Expansion: new visitors */
+.living-creature { position:absolute; pointer-events:none; filter:drop-shadow(0 4px 5px rgba(0,0,0,.28)); }
+.living-kingfisher { top:29%; left:-18%; font-size:28px; animation:livingKingfisher 6.4s ease-in-out both; }
+.living-otter { left:-20%; bottom:86px; font-size:34px; animation:livingOtter 9.2s ease-in-out both; }
+.living-luna-moth { top:31%; left:-12%; color:#dcffd7; font-size:26px; text-shadow:0 0 14px rgba(205,255,190,.9); animation:livingLunaMoth 7.6s ease-in-out both; }
+.living-salamander { left:9%; bottom:54px; font-size:25px; animation:livingSalamander 8.8s ease-in-out both; }
+.living-beaver { right:-18%; bottom:72px; font-size:34px; animation:livingBeaver 8.3s ease-in-out both; }
+.living-ladybug { top:44%; left:18%; width:12px; height:12px; border-radius:50%; color:#e74b42; background:#e74b42; box-shadow:inset -4px 0 #271817,0 0 8px rgba(255,110,90,.35); animation:livingLadybug 6.6s ease-in-out both; }
+.living-moon-hare { right:9%; top:27%; font-size:38px; opacity:0; filter:grayscale(1) brightness(.45) drop-shadow(0 0 8px rgba(240,242,255,.3)); animation:livingMoonHare 7.2s ease-in-out both; }
+.living-koi-circle { position:absolute; left:50%; bottom:90px; width:130px; height:46px; transform:translateX(-50%); }
+.living-koi-circle i { position:absolute; top:12px; color:#ffb366; font-style:normal; font-size:28px; opacity:0; }
+.living-koi-circle i:first-child { left:8px; animation:livingKoiLeft 7.8s ease-in-out both; }
+.living-koi-circle i:last-child { right:8px; animation:livingKoiRight 7.8s ease-in-out both; }
+@keyframes livingKingfisher { 0%{transform:translate(0,20px) rotate(-8deg);opacity:0} 15%{opacity:1} 48%{transform:translate(58vw,-34px) rotate(6deg)} 60%{transform:translate(68vw,52px) rotate(20deg)} 100%{transform:translate(135vw,-28px) rotate(-4deg);opacity:0} }
+@keyframes livingOtter { 0%{transform:translateX(0) rotate(-8deg);opacity:0} 12%,82%{opacity:1} 42%{transform:translateX(55vw) rotate(5deg)} 58%{transform:translateX(68vw) rotate(-5deg)} 100%{transform:translateX(145vw) rotate(7deg);opacity:0} }
+@keyframes livingLunaMoth { 0%{transform:translate(0,28px) scale(.5);opacity:0} 18%{opacity:1} 45%{transform:translate(48vw,-20px) scale(1.2)} 72%{transform:translate(78vw,14px) scale(.8)} 100%{transform:translate(125vw,-42px) scale(.4);opacity:0} }
+@keyframes livingSalamander { 0%,100%{transform:translateX(-24px);opacity:0} 15%{opacity:1} 65%{transform:translateX(42vw);opacity:1} 82%{transform:translateX(48vw) rotate(7deg);opacity:.8} }
+@keyframes livingBeaver { 0%{transform:translateX(0);opacity:0} 14%{opacity:1} 78%{transform:translateX(-82vw);opacity:1} 100%{transform:translateX(-120vw);opacity:0} }
+@keyframes livingLadybug { 0%{transform:translate(0,-50px) scale(.4);opacity:0} 22%{opacity:1} 48%,72%{transform:translate(32vw,18px) scale(1);opacity:1} 100%{transform:translate(58vw,-25px) scale(.5);opacity:0} }
+@keyframes livingMoonHare { 0%,100%{opacity:0;transform:translateY(12px) scale(.8)} 28%,72%{opacity:.42;transform:translateY(0) scale(1)} }
+@keyframes livingKoiLeft { 0%,100%{opacity:0;transform:translate(0,0) rotate(0)} 18%{opacity:1} 55%{opacity:1;transform:translate(48px,-18px) rotate(145deg)} 82%{opacity:.7;transform:translate(88px,3px) rotate(280deg)} }
+@keyframes livingKoiRight { 0%,100%{opacity:0;transform:translate(0,0) rotate(0)} 18%{opacity:1} 55%{opacity:1;transform:translate(-48px,18px) rotate(-145deg)} 82%{opacity:.7;transform:translate(-88px,-3px) rotate(-280deg)} }
