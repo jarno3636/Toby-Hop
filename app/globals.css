@@ -4329,3 +4329,90 @@ img {
   }
   .pond-sound-toggle.pond-sound-toggle-lower small { display: none; }
 }
+
+/* Unified Daily Pond Engine: weather remains visible even when a featured event is active. */
+.pond-weather-fog,
+.pond-weather-wind {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+  border-radius: inherit;
+}
+
+.pond-weather-fog {
+  background: linear-gradient(180deg, rgba(218, 237, 230, .10), rgba(213, 232, 226, .18) 52%, rgba(210, 231, 225, .08));
+  mix-blend-mode: screen;
+}
+
+.pond-weather-fog span {
+  position: absolute;
+  left: -35%;
+  width: 170%;
+  height: 22%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(232, 245, 240, .24), rgba(232, 245, 240, 0) 72%);
+  filter: blur(12px);
+  animation: pondFogDrift 18s ease-in-out infinite alternate;
+}
+.pond-weather-fog span:nth-child(1) { top: 18%; }
+.pond-weather-fog span:nth-child(2) { top: 43%; animation-delay: -7s; animation-duration: 24s; }
+.pond-weather-fog span:nth-child(3) { top: 67%; animation-delay: -12s; animation-duration: 21s; }
+
+.pond-weather-wind span {
+  position: absolute;
+  left: -30%;
+  width: 42%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(221, 247, 240, .42), transparent);
+  animation: pondWindTrace 6.5s linear infinite;
+}
+.pond-weather-wind span:nth-child(1) { top: 28%; }
+.pond-weather-wind span:nth-child(2) { top: 51%; animation-delay: -2.2s; }
+.pond-weather-wind span:nth-child(3) { top: 72%; animation-delay: -4.1s; }
+
+@keyframes pondFogDrift {
+  from { transform: translate3d(-4%, 0, 0) scale(1); opacity: .52; }
+  to { transform: translate3d(8%, 2%, 0) scale(1.08); opacity: .86; }
+}
+@keyframes pondWindTrace {
+  0% { transform: translateX(0); opacity: 0; }
+  15% { opacity: .7; }
+  80% { opacity: .35; }
+  100% { transform: translateX(340%); opacity: 0; }
+}
+
+.pond-forecast-subdescription {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: .62;
+}
+
+.pond-daily-truth {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pond-daily-truth > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(197,239,230,.14);
+  border-radius: 16px;
+  background: rgba(4, 33, 31, .34);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "icon label" "icon value";
+  column-gap: 9px;
+  align-items: center;
+}
+.pond-daily-truth span { grid-area: icon; font-size: 20px; }
+.pond-daily-truth small { grid-area: label; font-size: 9px; letter-spacing: .16em; opacity: .55; }
+.pond-daily-truth strong { grid-area: value; font-size: 13px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pond-weather-fog span,
+  .pond-weather-wind span { animation: none; }
+}
