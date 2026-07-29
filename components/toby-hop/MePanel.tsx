@@ -395,14 +395,14 @@ export function MePanel(props: Props) {
             </article>
 
             <article>
-              <span>Discoveries</span>
+              <span>Pond finds</span>
               <strong>
                 {journal.uniqueDiscoveries}
                 {journal.availableDiscoveries > 0
                   ? `/${journal.availableDiscoveries}`
                   : ''}
               </strong>
-              <small>pond finds</small>
+              <small>collectible discoveries</small>
             </article>
 
             <article>
@@ -415,8 +415,8 @@ export function MePanel(props: Props) {
           <section className="journal-discovery-progress">
             <div className="journal-section-heading">
               <div>
-                <span>DISCOVERY MAP</span>
-                <strong>The pond is still revealing itself</strong>
+                <span>POND FIND MAP</span>
+                <strong>Collectible finds and one-time secrets are tracked separately</strong>
               </div>
               <b>{discoveryProgress}%</b>
             </div>
@@ -441,7 +441,7 @@ export function MePanel(props: Props) {
           <section className="journal-section">
             <div className="journal-section-heading">
               <div>
-                <span>RECENT FINDS</span>
+                <span>RECENT POND FINDS</span>
                 <strong>Things the pond has shown you</strong>
               </div>
             </div>
@@ -459,7 +459,7 @@ export function MePanel(props: Props) {
               journal.recentFinds.length === 0 && (
                 <div className="journal-empty-find">
                   <span aria-hidden="true">≈</span>
-                  <strong>No discoveries yet</strong>
+                  <strong>No pond finds yet</strong>
                   <p>Your next verified hop may uncover something.</p>
                 </div>
               )}

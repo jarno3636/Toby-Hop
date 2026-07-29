@@ -13,6 +13,11 @@ export type PondForecast = {
   emoji: string;
   moonPhase: string;
   goldenToby?: boolean;
+  weather: string;
+  weatherEmoji: string;
+  season: string;
+  mood: string;
+  eventLabel: string;
 };
 
 export type PondConditionState = {
@@ -597,8 +602,14 @@ export function PondConditionsPanel({
           <span className="pond-forecast-description">
             {goldenWatch.active
               ? 'A rare golden visitor has surfaced.'
-              : pond.description}
+              : `${pond.weatherEmoji} ${pond.weather} · ${pond.eventLabel}`}
           </span>
+
+          {!goldenWatch.active ? (
+            <span className="pond-forecast-subdescription">
+              {pond.description}
+            </span>
+          ) : null}
         </span>
 
         <span className="pond-forecast-signal">
@@ -647,6 +658,13 @@ export function PondConditionsPanel({
           >
             🐸
           </span>
+        </div>
+
+        <div className="pond-daily-truth" aria-label="Today’s complete pond state">
+          <div><span>{pond.weatherEmoji}</span><small>WEATHER</small><strong>{pond.weather}</strong></div>
+          <div><span>✨</span><small>EVENT</small><strong>{pond.eventLabel}</strong></div>
+          <div><span>🌿</span><small>SEASON</small><strong>{pond.season}</strong></div>
+          <div><span>◌</span><small>MOOD</small><strong>{pond.mood}</strong></div>
         </div>
 
         <div className="pond-forecast-condition-grid">
