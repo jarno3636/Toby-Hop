@@ -4416,3 +4416,37 @@ img {
   .pond-weather-fog span,
   .pond-weather-wind span { animation: none; }
 }
+
+/* Daily macro-event calendar */
+.pond-macro-event {
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  margin:.15rem 1rem .85rem;
+  padding:.8rem .9rem;
+  border:1px solid rgba(177,255,234,.18);
+  border-radius:18px;
+  background:linear-gradient(135deg,rgba(35,112,105,.2),rgba(13,43,51,.32));
+  color:rgba(226,255,247,.78);
+  font-size:.78rem;
+  line-height:1.35;
+}
+.pond-macro-event > span:first-child { font-size:1.55rem; filter:drop-shadow(0 0 10px rgba(255,225,145,.26)); }
+.pond-macro-event strong { display:block; color:#f4fff9; font-size:.88rem; margin-bottom:.14rem; }
+
+/* Automatic seasonal and international calendar moments */
+.pond-calendar-scene { position:absolute; inset:0; z-index:8; overflow:hidden; pointer-events:none; }
+.pond-calendar-scene span { --calendar-index:0; position:absolute; left:calc(7% + (var(--calendar-index) * 11%)); top:calc(20% + ((var(--calendar-index) % 4) * 14%)); opacity:0; animation:pondCalendarFloat 8s ease-in-out calc(var(--calendar-index) * .35s) infinite; }
+.pond-calendar-red-lanterns span::before,.pond-calendar-moon-lanterns span::before { content:'🏮'; font-size:18px; filter:drop-shadow(0 0 9px rgba(255,101,64,.55)); }
+.pond-calendar-heartleaves span::before { content:'♥'; color:#ef9ba9; font-size:15px; text-shadow:0 0 8px rgba(255,139,166,.45); }
+.pond-calendar-violet-bloom span::before { content:'✿'; color:#c7a7ff; font-size:17px; }
+.pond-calendar-spring-awakening span::before,.pond-calendar-earth-bloom span::before,.pond-calendar-flower-crowns span::before { content:'✿'; color:#bdf09e; font-size:16px; }
+.pond-calendar-blue-ripples span::before,.pond-calendar-friendship-ripples span::before { content:'◌'; color:rgba(185,247,255,.78); font-size:22px; }
+.pond-calendar-wildlife-day span::before,.pond-calendar-animal-parade span::before { content:'•'; color:#dbffc9; box-shadow:0 0 8px rgba(183,255,154,.7); }
+.pond-calendar-longest-light span::before,.pond-calendar-first-light span::before { content:'✦'; color:#fff1a5; font-size:17px; text-shadow:0 0 12px rgba(255,220,91,.72); }
+.pond-calendar-lantern-pumpkins span::before { content:'🎃'; font-size:17px; }
+.pond-calendar-festival-lights span::before,.pond-calendar-winter-lights span::before { content:'•'; color:#ffd989; box-shadow:0 0 11px #ffcf67,0 0 22px rgba(255,164,63,.38); }
+.pond-calendar-gathering-leaves span::before { content:'◆'; color:#c99352; font-size:13px; }
+.pond-calendar-longest-night span::before { content:'✦'; color:#dce9ff; font-size:14px; text-shadow:0 0 10px rgba(170,195,255,.7); }
+@keyframes pondCalendarFloat { 0%,100%{opacity:0;transform:translateY(18px) rotate(-8deg) scale(.75)} 20%{opacity:.72} 55%{opacity:.9;transform:translateY(-18px) rotate(8deg) scale(1)} 82%{opacity:.35} }
+@media (prefers-reduced-motion: reduce) { .pond-calendar-scene { display:none; } }
