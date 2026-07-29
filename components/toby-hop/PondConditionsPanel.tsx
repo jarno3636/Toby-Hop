@@ -18,6 +18,8 @@ export type PondForecast = {
   season: string;
   mood: string;
   eventLabel: string;
+  macroEvent?: null | { name: string; emoji: string; description: string };
+  combinationLabel?: string;
 };
 
 export type PondConditionState = {
@@ -602,7 +604,7 @@ export function PondConditionsPanel({
           <span className="pond-forecast-description">
             {goldenWatch.active
               ? 'A rare golden visitor has surfaced.'
-              : `${pond.weatherEmoji} ${pond.weather} · ${pond.eventLabel}`}
+              : pond.combinationLabel ?? `${pond.weatherEmoji} ${pond.weather} · ${pond.eventLabel}`}
           </span>
 
           {!goldenWatch.active ? (
@@ -633,6 +635,13 @@ export function PondConditionsPanel({
             : '+'}
         </span>
       </button>
+
+      {pond.macroEvent ? (
+        <div className="pond-macro-event" role="note">
+          <span aria-hidden="true">{pond.macroEvent.emoji}</span>
+          <span><strong>{pond.macroEvent.name}</strong>{pond.macroEvent.description}</span>
+        </div>
+      ) : null}
 
       <div
         id={detailsId}
