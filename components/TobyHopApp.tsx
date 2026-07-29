@@ -4826,6 +4826,22 @@ export function TobyHopApp() {
               )}
             </div>
 
+            {todaysPond.macroEvent ? (
+              <div
+                className={`pond-calendar-scene pond-calendar-${todaysPond.macroEvent.visualKind}`}
+                aria-hidden="true"
+              >
+                {Array.from({ length: 9 }, (_, index) => (
+                  <span
+                    key={`${todaysPond.macroEvent?.key ?? 'event'}-${index}`}
+                    style={{
+                      '--calendar-index': index,
+                    } as CSSProperties}
+                  />
+                ))}
+              </div>
+            ) : null}
+
             <LivingPondLayer
               themeId={todaysPond.id}
               moonPhase={todaysPond.moonPhase}
@@ -4842,6 +4858,7 @@ export function TobyHopApp() {
               season={todaysPond.season}
               weather={todaysPond.weather}
               mood={todaysPond.mood}
+              macroEventKey={todaysPond.macroEvent?.key ?? null}
               encounter={receipt?.encounter ?? null}
               onFrogCueChange={handleFrogCueChange}
               onEventChange={handlePondEventChange}
@@ -5141,6 +5158,12 @@ export function TobyHopApp() {
 
             eventLabel:
               todaysPond.eventLabel,
+
+            macroEvent:
+              todaysPond.macroEvent,
+
+            combinationLabel:
+              todaysPond.combinationLabel,
           }}
           conditions={
             specialPond
