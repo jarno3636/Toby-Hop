@@ -520,94 +520,116 @@ async function unlockPondAudio(): Promise<AudioContext | null> {
 
 
 
-type PondAmbienceMode = 'day' | 'night' | 'rain' | 'wind';
+type PondAmbienceMode = 'day' | 'night';
 
-type PondAmbienceGraph = {
-  context: AudioContext;
-  source: AudioBufferSourceNode;
-  filter: BiquadFilterNode;
-  gain: GainNode;
-  pulse: OscillatorNode;
-  pulseGain: GainNode;
-  mode: PondAmbienceMode;
+type PondAmbiencePlayer = {
+  day: HTMLAudioElement;
+  night: HTMLAudioElement;
+  activeMode: PondAmbienceMode | null;
+  fadeTimer: number | null;
 };
 
-let sharedPondAmbience: PondAmbienceGraph | null = null;
+const POND_AMBIENCE_VOLUME = 0.18;
+const POND_AMBIENCE_FADE_MS = 700;
+let sharedPondAmbiencePlayer: PondAmbiencePlayer | null = null;
 
-function stopPondAmbience(): void {
-  const ambience = sharedPondAmbience;
-  sharedPondAmbience = null;
-  if (!ambience) return;
+function createPondAmbiencePlayer(): PondAmbiencePlayer | null {
+  if (typeof window === 'undefined') return null;
+  if (sharedPondAmbiencePlayer) return sharedPondAmbiencePlayer;
 
-  const now = ambience.context.currentTime;
-  try {
-    ambience.gain.gain.cancelScheduledValues(now);
-    ambience.gain.gain.setTargetAtTime(0.0001, now, 0.12);
-    ambience.pulseGain.gain.cancelScheduledValues(now);
-    ambience.pulseGain.gain.setTargetAtTime(0.0001, now, 0.12);
-    ambience.source.stop(now + 0.45);
-    ambience.pulse.stop(now + 0.45);
-  } catch {
-    // Nodes may already be stopped during fast navigation or hot reload.
+  const day = new Audio('/pond/daypond.mp3');
+  const night = new Audio('/pond/nightpond.mp3');
+
+  for (const audio of [day, night]) {
+    audio.loop = true;
+    audio.preload = 'auto';
+    audio.volume = 0;
+    audio.playsInline = true;
+  }
+
+  sharedPondAmbiencePlayer = {
+    day,
+    night,
+    activeMode: null,
+    fadeTimer: null,
+  };
+
+  return sharedPondAmbiencePlayer;
+}
+
+function clearPondAmbienceFade(player: PondAmbiencePlayer): void {
+  if (player.fadeTimer !== null) {
+    window.clearInterval(player.fadeTimer);
+    player.fadeTimer = null;
   }
 }
 
-async function startPondAmbience(mode: PondAmbienceMode, enabled = true): Promise<void> {
+function stopPondAmbience(): void {
+  const player = sharedPondAmbiencePlayer;
+  if (!player) return;
+
+  clearPondAmbienceFade(player);
+  player.day.pause();
+  player.night.pause();
+  player.day.volume = 0;
+  player.night.volume = 0;
+  player.activeMode = null;
+}
+
+async function startPondAmbience(
+  mode: PondAmbienceMode,
+  enabled = true,
+): Promise<void> {
   if (!enabled) {
     stopPondAmbience();
     return;
   }
 
-  const context = await unlockPondAudio();
-  if (!context || context.state !== 'running') return;
-  if (sharedPondAmbience?.context === context && sharedPondAmbience.mode === mode) return;
+  const player = createPondAmbiencePlayer();
+  if (!player) return;
 
-  stopPondAmbience();
+  const active = mode === 'night' ? player.night : player.day;
+  const inactive = mode === 'night' ? player.day : player.night;
 
-  const seconds = 3;
-  const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
-  const channel = buffer.getChannelData(0);
-  for (let index = 0; index < channel.length; index += 1) {
-    const slowSwell = 0.55 + Math.sin((index / channel.length) * Math.PI * 8) * 0.18;
-    channel[index] = (Math.random() * 2 - 1) * slowSwell;
+  if (player.activeMode === mode && !active.paused) {
+    if (active.volume < POND_AMBIENCE_VOLUME) {
+      active.volume = POND_AMBIENCE_VOLUME;
+    }
+    return;
   }
 
-  const source = context.createBufferSource();
-  const filter = context.createBiquadFilter();
-  const gain = context.createGain();
-  const pulse = context.createOscillator();
-  const pulseGain = context.createGain();
-  const now = context.currentTime;
+  clearPondAmbienceFade(player);
+  active.volume = 0;
 
-  source.buffer = buffer;
-  source.loop = true;
-  filter.type = mode === 'rain' ? 'bandpass' : 'lowpass';
-  filter.frequency.setValueAtTime(
-    mode === 'rain' ? 1450 : mode === 'wind' ? 720 : mode === 'night' ? 430 : 560,
-    now,
-  );
-  filter.Q.setValueAtTime(mode === 'rain' ? 0.45 : 0.8, now);
+  try {
+    await active.play();
+  } catch {
+    // Farcaster's iOS webview requires a direct user gesture before audio can begin.
+    return;
+  }
 
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(
-    mode === 'rain' ? 0.052 : mode === 'wind' ? 0.026 : 0.018,
-    now + 0.9,
-  );
+  const startedAt = performance.now();
+  const previousVolume = inactive.paused ? 0 : inactive.volume;
+  player.activeMode = mode;
 
-  pulse.type = 'sine';
-  pulse.frequency.setValueAtTime(mode === 'night' ? 76 : 92, now);
-  pulseGain.gain.setValueAtTime(0.0001, now);
-  pulseGain.gain.exponentialRampToValueAtTime(mode === 'rain' ? 0.008 : 0.005, now + 1.1);
+  player.fadeTimer = window.setInterval(() => {
+    const progress = Math.min(
+      1,
+      (performance.now() - startedAt) / POND_AMBIENCE_FADE_MS,
+    );
 
-  source.connect(filter);
-  filter.connect(gain);
-  gain.connect(context.destination);
-  pulse.connect(pulseGain);
-  pulseGain.connect(context.destination);
-  source.start(now);
-  pulse.start(now);
+    active.volume = POND_AMBIENCE_VOLUME * progress;
 
-  sharedPondAmbience = { context, source, filter, gain, pulse, pulseGain, mode };
+    if (!inactive.paused) {
+      inactive.volume = Math.max(0, previousVolume * (1 - progress));
+    }
+
+    if (progress >= 1) {
+      clearPondAmbienceFade(player);
+      inactive.pause();
+      inactive.volume = 0;
+    }
+  }, 40);
 }
 
 function playHopLaunchSound(): void {
@@ -1434,13 +1456,9 @@ export function TobyHopApp() {
 
 
   const pondAmbienceMode: PondAmbienceMode =
-    todaysPond.weather === 'rain' || todaysPond.weather === 'drizzle'
-      ? 'rain'
-      : todaysPond.weather === 'wind'
-        ? 'wind'
-        : new Date().getHours() >= 19 || new Date().getHours() < 6
-          ? 'night'
-          : 'day';
+    new Date().getHours() >= 19 || new Date().getHours() < 6
+      ? 'night'
+      : 'day';
 
   useEffect(() => {
     if (!soundEnabled || view !== 'hop') {
@@ -1448,12 +1466,28 @@ export function TobyHopApp() {
       return;
     }
 
-    const unlockOnFirstGesture = () => {
+    const beginAmbience = () => {
       void startPondAmbience(pondAmbienceMode, true);
     };
 
-    window.addEventListener('pointerdown', unlockOnFirstGesture, { once: true, passive: true });
-    return () => window.removeEventListener('pointerdown', unlockOnFirstGesture);
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPondAmbience();
+      } else {
+        beginAmbience();
+      }
+    };
+
+    // This resumes immediately for an already-unlocked session. On iOS, the
+    // pointer listener below performs the required first user-gesture unlock.
+    beginAmbience();
+    window.addEventListener('pointerdown', beginAmbience, { once: true, passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pointerdown', beginAmbience);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [pondAmbienceMode, soundEnabled, view]);
 
   const toggleSound = useCallback(async () => {
