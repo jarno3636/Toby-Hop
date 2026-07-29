@@ -26,7 +26,15 @@ export type LivingPondEventId =
   | 'acorn-drop'
   | 'goose-crossing'
   | 'moon-lotus'
-  | 'pond-whisper';
+  | 'pond-whisper'
+  | 'kingfisher'
+  | 'otter-visit'
+  | 'luna-moth'
+  | 'salamander'
+  | 'koi-circle'
+  | 'beaver-ripple'
+  | 'ladybug-landing'
+  | 'moon-hare-shadow';
 
 export type FrogCue =
   | 'idle'
@@ -55,6 +63,7 @@ export type LivingPondContext = {
   season: 'spring' | 'summer' | 'autumn' | 'winter';
   weather: 'clear' | 'drizzle' | 'rain' | 'fog' | 'wind' | 'snow';
   mood: 'bright' | 'quiet' | 'restless' | 'mysterious' | 'glowing';
+  macroEventKey?: string | null;
 };
 
 export type LivingPondEventDefinition = {
@@ -266,6 +275,39 @@ export const LIVING_POND_EVENTS: readonly LivingPondEventDefinition[] = [
     weight: 2,
     frogCue: 'double-blink',
     allowed: ({ busy, mood }) => !busy && (mood === 'mysterious' || mood === 'quiet'),
+  },
+
+  {
+    id: 'kingfisher', durationMs: 6_400, weight: 3, frogCue: 'look-up',
+    allowed: ({ busy, raining, snowing, hour }) => !busy && !raining && !snowing && hour >= 6 && hour < 18,
+  },
+  {
+    id: 'otter-visit', durationMs: 9_200, weight: 2, frogCue: 'smile',
+    allowed: ({ busy, snowing, weather }) => !busy && !snowing && weather !== 'fog',
+  },
+  {
+    id: 'luna-moth', durationMs: 7_600, weight: 3, frogCue: 'curious',
+    allowed: ({ busy, raining, snowing, hour, season }) => !busy && !raining && !snowing && nightHours(hour) && (season === 'spring' || season === 'summer'),
+  },
+  {
+    id: 'salamander', durationMs: 8_800, weight: 3, frogCue: 'glance-left',
+    allowed: ({ busy, snowing, weather }) => !busy && !snowing && (weather === 'rain' || weather === 'drizzle'),
+  },
+  {
+    id: 'koi-circle', durationMs: 7_800, weight: 4, frogCue: 'glance-right',
+    allowed: ({ busy, snowing, macroEventKey }) => !busy && !snowing && (macroEventKey === 'lunar_new_year' || macroEventKey === 'mid_autumn' || macroEventKey === 'diwali'),
+  },
+  {
+    id: 'beaver-ripple', durationMs: 8_300, weight: 2, frogCue: 'curious',
+    allowed: ({ busy, snowing, hour }) => !busy && !snowing && (hour >= 16 || hour < 8),
+  },
+  {
+    id: 'ladybug-landing', durationMs: 6_600, weight: 5, frogCue: 'glance-right',
+    allowed: ({ busy, raining, snowing, season, hour }) => !busy && !raining && !snowing && season === 'spring' && hour >= 7 && hour < 19,
+  },
+  {
+    id: 'moon-hare-shadow', durationMs: 7_200, weight: 1, frogCue: 'look-up',
+    allowed: ({ busy, raining, moonPhase, hour, macroEventKey }) => !busy && !raining && nightHours(hour) && moonPhase === 'full' && macroEventKey === 'mid_autumn',
   },
   {
     id: 'golden-butterfly',

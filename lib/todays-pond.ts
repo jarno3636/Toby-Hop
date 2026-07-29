@@ -1,3 +1,5 @@
+import { getSeasonalEvent, type SeasonalEventKey, type SeasonalVisualKind } from '@/lib/toby-core/events/seasonal-calendar';
+
 export type PondThemeId =
   | 'moon'
   | 'rain'
@@ -55,6 +57,14 @@ export type TodaysPond = {
   eventLabel: string;
   weatherLabel: string;
   weatherEmoji: string;
+  macroEvent: null | {
+    key: SeasonalEventKey;
+    name: string;
+    emoji: string;
+    description: string;
+    visualKind: SeasonalVisualKind;
+  };
+  combinationLabel: string;
 };
 
 export const GOLDEN_TOBY_ODDS = 1000;
@@ -62,7 +72,7 @@ export const GOLDEN_TOBY_PERCENT = 100 / GOLDEN_TOBY_ODDS;
 export const STARFALL_ODDS = 97;
 export const STARFALL_PERCENT = 100 / STARFALL_ODDS;
 
-const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'weather' | 'mood' | 'curiosityTitle' | 'curiosityBody' | 'forecast' | 'eventKind' | 'eventLabel' | 'weatherLabel' | 'weatherEmoji'>> = [
+const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'weather' | 'mood' | 'curiosityTitle' | 'curiosityBody' | 'forecast' | 'eventKind' | 'eventLabel' | 'weatherLabel' | 'weatherEmoji' | 'macroEvent' | 'combinationLabel'>> = [
   { id: 'moon', name: 'Moonlit Pond', emoji: '🌙', description: 'Still water beneath the moon', particleCount: 0 },
   { id: 'rain', name: 'Rainy Pond', emoji: '🌧️', description: 'Soft rain ripples across the pond', particle: 'drop', particleCount: 18 },
   { id: 'fireflies', name: 'Firefly Pond', emoji: '✨', description: 'Tiny lights dance above the reeds', particle: 'firefly', particleCount: 13 },
@@ -171,22 +181,46 @@ function buildForecast(date: Date): PondForecast {
   };
 }
 
+function chooseThemeIndex(dayKey: string, season: PondSeason): number {
+  const seed = hashString(`pond:${dayKey}`);
+  if (seed % STARFALL_ODDS === 0) return THEMES.length - 1;
+
+  const seasonPools: Record<PondSeason, PondThemeId[]> = {
+    spring: ['moon', 'rain', 'blossom', 'lotus', 'rainbow', 'fireflies'],
+    summer: ['moon', 'rain', 'fireflies', 'lotus', 'rainbow', 'blossom'],
+    autumn: ['moon', 'rain', 'autumn', 'fireflies', 'lotus', 'rainbow'],
+    winter: ['moon', 'winter', 'rain', 'shooting-star', 'rainbow'],
+  };
+
+  const pool = seasonPools[season];
+  const selectedId = pool[seed % pool.length];
+  return Math.max(0, THEMES.findIndex((theme) => theme.id === selectedId));
+}
+
+function getCombinationLabel(weather: PondWeather, eventLabel: string, macroName?: string): string {
+  const weatherName = WEATHER_DETAILS[weather].label;
+  return macroName ? `${weatherName} · ${eventLabel} · ${macroName}` : `${weatherName} · ${eventLabel}`;
+}
+
 function buildDailyPond(date: Date, includeForecast: boolean): TodaysPond {
   const dayKey = getUtcDayKey(date);
-  const pondSeed = hashString(`pond:${dayKey}`);
   const moonSeed = hashString(`moon:${dayKey}`);
   const goldenSeed = hashString(`golden:${dayKey}`);
-  const starfallIndex = THEMES.length - 1;
-  const normalThemeCount = THEMES.length - 1;
-  const isStarfall = pondSeed % STARFALL_ODDS === 0;
-  const themeIndex = isStarfall ? starfallIndex : pondSeed % normalThemeCount;
-  const theme = THEMES[themeIndex];
-  const moonPhase = MOON_PHASES[moonSeed % MOON_PHASES.length];
   const season = getPondSeason(date);
+  const theme = THEMES[chooseThemeIndex(dayKey, season)];
+  const moonPhase = MOON_PHASES[moonSeed % MOON_PHASES.length];
   const weather = theme.id === 'rain' ? 'rain' : theme.id === 'winter' ? 'snow' : getWeather(dayKey, season);
   const curiosity = getCuriosityCopy(theme.id, weather, moonPhase);
   const event = EVENT_DETAILS[theme.id];
   const weatherDetails = WEATHER_DETAILS[weather];
+  const seasonal = getSeasonalEvent(date);
+  const macroEvent = seasonal ? {
+    key: seasonal.key,
+    name: seasonal.name,
+    emoji: seasonal.emoji,
+    description: seasonal.description,
+    visualKind: seasonal.visualKind,
+  } : null;
 
   return {
     ...theme,
@@ -211,6 +245,8 @@ function buildDailyPond(date: Date, includeForecast: boolean): TodaysPond {
     eventLabel: event.label,
     weatherLabel: weatherDetails.label,
     weatherEmoji: weatherDetails.emoji,
+    macroEvent,
+    combinationLabel: getCombinationLabel(weather, event.label, macroEvent?.name),
   };
 }
 
