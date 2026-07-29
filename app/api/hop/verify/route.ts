@@ -1412,6 +1412,12 @@ export async function POST(
           pondMood:
             pond.mood,
 
+          pondEvent:
+            pond.eventKind,
+
+          pondMacroEvent:
+            pond.macroEvent?.key ?? null,
+
           goldenTobyDay:
             pond.goldenToby,
         },
