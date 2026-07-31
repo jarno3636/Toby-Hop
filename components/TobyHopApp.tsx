@@ -4624,7 +4624,6 @@ export function TobyHopApp() {
                   <span className="pond-field-label">Today’s field note</span>
                   <h1>{todaysPond.storyTitle}</h1>
                   <p className="pond-story-copy">“{todaysPond.dailyNarrative}”</p>
-                  <span className="pond-story-return">Return tomorrow for another hop</span>
                 </>
               ) : (
                 <>
