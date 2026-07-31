@@ -2,6 +2,7 @@
 
 import { sdk } from '@farcaster/miniapp-sdk';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { chooseDailyWonder, type PondWonder } from '@/lib/pond/wonder';
 import {
   chooseLivingPondChain,
   chooseLivingPondEvent,
@@ -28,6 +29,8 @@ const CHAIN_CHANCE = 0.14;
 const CHAIN_STEP_GAP_MS = 650;
 const FROG_CUE_MIN_MS = 8_000;
 const FROG_CUE_MAX_MS = 19_000;
+const WONDER_MIN_MS = 11_000;
+const WONDER_MAX_MS = 24_000;
 
 function between(min: number, max: number): number {
   return Math.round(min + Math.random() * (max - min));
@@ -51,11 +54,13 @@ export function useLivingPond(context: LivingPondContext) {
   const [activeEvent, setActiveEvent] = useState<LivingPondEventDefinition | null>(null);
   const [activeChain, setActiveChain] = useState<LivingPondEventChain | null>(null);
   const [frogCue, setFrogCue] = useState<FrogCue>('idle');
+  const [activeWonder, setActiveWonder] = useState<PondWonder | null>(null);
   const [memory, setMemory] = useState<PondEventMemoryItem[]>([]);
   const memoryRef = useRef<PondEventMemoryItem[]>([]);
   const recentRef = useRef<LivingPondEventId[]>([]);
   const mountedRef = useRef(false);
   const previousTodayHoppedRef = useRef(context.todayHopped);
+  const wonderShownRef = useRef(false);
 
   const stableContext = useMemo(() => context, [
     context.themeId, context.moonPhase, context.raining, context.snowing,
@@ -208,6 +213,25 @@ export function useLivingPond(context: LivingPondContext) {
   }, [recordMemory, stableContext]);
 
   useEffect(() => {
+    if (stableContext.busy || activeWonder || wonderShownRef.current) return;
+
+    const wonder = chooseDailyWonder(stableContext, memoryContext.dayKey);
+    if (!wonder) return;
+
+    let clearTimer: number | undefined;
+    const showTimer = window.setTimeout(() => {
+      wonderShownRef.current = true;
+      setActiveWonder(wonder);
+      clearTimer = window.setTimeout(() => setActiveWonder(null), wonder.durationMs);
+    }, between(WONDER_MIN_MS, WONDER_MAX_MS));
+
+    return () => {
+      window.clearTimeout(showTimer);
+      if (clearTimer) window.clearTimeout(clearTimer);
+    };
+  }, [activeWonder, memoryContext.dayKey, stableContext]);
+
+  useEffect(() => {
     if (stableContext.busy || activeEvent) return;
     let resetTimer: number | undefined;
     let cueTimer: number | undefined;
@@ -232,5 +256,5 @@ export function useLivingPond(context: LivingPondContext) {
     };
   }, [activeEvent, stableContext.busy]);
 
-  return { activeEvent, activeChain, frogCue, memoryReady: memory.length > 0 };
+  return { activeEvent, activeChain, activeWonder, frogCue, memoryReady: memory.length > 0 };
 }
