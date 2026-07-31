@@ -4718,3 +4718,92 @@ img {
   .foreground-reed,
   .foreground-drift { animation: none !important; }
 }
+
+/* =========================================================
+   STORY HIERARCHY + OVERLAP FIX
+   Keeps the field note readable without covering Toby or
+   creating a second floating text bubble over the scene.
+   ========================================================= */
+.hop-copy-story {
+  top: 20px;
+  right: 28px;
+  left: 28px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  isolation: isolate;
+}
+
+.hop-copy-story::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -20px;
+  right: -28px;
+  left: -28px;
+  height: 190px;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(3, 25, 31, 0.68) 0%,
+    rgba(3, 25, 31, 0.34) 54%,
+    transparent 100%
+  );
+}
+
+.hop-copy-story .pond-field-label {
+  margin-bottom: 6px;
+  font-size: 0.6rem;
+}
+
+.hop-copy-story h1 {
+  max-width: 420px;
+  font-size: clamp(1.62rem, 6.6vw, 2.15rem);
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+}
+
+.hop-copy-story .pond-story-copy {
+  display: -webkit-box;
+  max-width: 330px !important;
+  margin-top: 9px !important;
+  overflow: hidden;
+  font-size: clamp(0.78rem, 3.05vw, 0.9rem) !important;
+  line-height: 1.42 !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* The visit status below Toby already carries the return cue. */
+.pond-story-return {
+  display: none !important;
+}
+
+@media (max-width: 430px) {
+  .hop-copy-story {
+    top: 18px;
+    right: 20px;
+    left: 20px;
+    padding: 0;
+  }
+
+  .hop-copy-story::before {
+    right: -20px;
+    left: -20px;
+    height: 178px;
+  }
+
+  .hop-copy-story h1 {
+    font-size: clamp(1.46rem, 6.5vw, 1.88rem);
+  }
+
+  .hop-copy-story .pond-story-copy {
+    max-width: 292px !important;
+    font-size: 0.78rem !important;
+    line-height: 1.38 !important;
+  }
+
+  .celestial-scene {
+    top: 138px;
+  }
+}
