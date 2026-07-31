@@ -78,7 +78,7 @@ export function LivingPondLayer({
   onEventChange,
   ...context
 }: LivingPondLayerProps) {
-  const { activeEvent, activeChain, frogCue } = useLivingPond(context);
+  const { activeEvent, activeChain, activeWonder, frogCue } = useLivingPond(context);
 
   useEffect(() => {
     onFrogCueChange(
@@ -135,29 +135,43 @@ export function LivingPondLayer({
     );
   }
 
-  if (!activeEvent) {
-    return null;
-  }
-
   return (
     <div
-      className={`living-pond-layer living-event-${activeEvent.id}`}
+      className={[
+        'living-pond-layer',
+        activeEvent ? `living-event-${activeEvent.id}` : 'living-event-idle',
+      ].join(' ')}
       aria-hidden="true"
-      data-living-event={activeEvent.id}
+      data-living-event={activeEvent?.id ?? 'idle'}
+      data-pond-wonder={activeWonder?.id ?? undefined}
     >
-      {activeChain && (
+      <span className="pond-depth pond-depth-sheen" />
+      <span className="pond-depth pond-depth-haze" />
+      <span className="pond-depth pond-depth-foreground">
+        <i /><i /><i /><i />
+      </span>
+
+      {activeWonder && (
+        <span className={`pond-wonder pond-wonder-${activeWonder.id}`}>
+          <i className="pond-wonder-piece pond-wonder-piece-one" />
+          <i className="pond-wonder-piece pond-wonder-piece-two" />
+          <i className="pond-wonder-piece pond-wonder-piece-three" />
+        </span>
+      )}
+
+      {activeEvent && activeChain && (
         <span className="living-chain-caption">{activeChain.title}</span>
       )}
 
-      {activeEvent.id === 'butterfly' && (
+      {activeEvent?.id === 'butterfly' && (
         <span className="living-butterfly">✦</span>
       )}
 
-      {activeEvent.id === 'golden-butterfly' && (
+      {activeEvent?.id === 'golden-butterfly' && (
         <span className="living-butterfly living-butterfly-golden">✦</span>
       )}
 
-      {activeEvent.id === 'dragonfly' && (
+      {activeEvent?.id === 'dragonfly' && (
         <span className="living-dragonfly">
           <i className="living-wing living-wing-left" />
           <i className="living-wing living-wing-right" />
@@ -165,7 +179,7 @@ export function LivingPondLayer({
         </span>
       )}
 
-      {activeEvent.id === 'fish-jump' && (
+      {activeEvent?.id === 'fish-jump' && (
         <>
           <span className="living-fish">◖</span>
           <span className="living-fish-ripple" />
@@ -174,7 +188,7 @@ export function LivingPondLayer({
         </>
       )}
 
-      {activeEvent.id === 'turtle' && (
+      {activeEvent?.id === 'turtle' && (
         <span className="living-turtle">
           <i className="living-turtle-shell" />
           <i className="living-turtle-head" />
@@ -183,14 +197,14 @@ export function LivingPondLayer({
         </span>
       )}
 
-      {activeEvent.id === 'drifting-leaf' && (
+      {activeEvent?.id === 'drifting-leaf' && (
         <>
           <span className="living-leaf">◆</span>
           <span className="living-leaf-ripple" />
         </>
       )}
 
-      {activeEvent.id === 'owl' && (
+      {activeEvent?.id === 'owl' && (
         <span className="living-owl">
           <i className="living-owl-wing wing-left" />
           <i className="living-owl-body" />
@@ -198,7 +212,7 @@ export function LivingPondLayer({
         </span>
       )}
 
-      {activeEvent.id === 'water-sparkle' && (
+      {activeEvent?.id === 'water-sparkle' && (
         <div className="living-sparkles">
           {Array.from({ length: 7 }, (_, index) => (
             <span
@@ -209,27 +223,27 @@ export function LivingPondLayer({
         </div>
       )}
 
-      {activeEvent.id === 'pond-breath' && (
+      {activeEvent?.id === 'pond-breath' && (
         <span className="living-pond-breath" />
       )}
 
-      {activeEvent.id === 'tiny-toby' && (
+      {activeEvent?.id === 'tiny-toby' && (
         <span className="living-tiny-toby">
           <i className="tiny-eye tiny-eye-left" />
           <i className="tiny-eye tiny-eye-right" />
         </span>
       )}
 
-      {activeEvent.id === 'moon-gaze' && (
+      {activeEvent?.id === 'moon-gaze' && (
         <span className="living-moon-thread" />
       )}
 
-      {activeEvent.id === 'lotus-whisper' && (
+      {activeEvent?.id === 'lotus-whisper' && (
         <span className="living-lotus-whisper">✦</span>
       )}
 
 
-      {activeEvent.id === 'bubble-trail' && (
+      {activeEvent?.id === 'bubble-trail' && (
         <span className="living-bubble-trail">
           {Array.from({ length: 5 }, (_, index) => (
             <i key={index} style={{ '--bubble-index': index } as CSSProperties} />
@@ -237,99 +251,99 @@ export function LivingPondLayer({
         </span>
       )}
 
-      {activeEvent.id === 'reed-rustle' && (
+      {activeEvent?.id === 'reed-rustle' && (
         <span className="living-reed-rustle">
           <i /><i /><i />
         </span>
       )}
 
-      {activeEvent.id === 'lily-turn' && (
+      {activeEvent?.id === 'lily-turn' && (
         <span className="living-lily-turn" />
       )}
 
-      {activeEvent.id === 'floating-feather' && (
+      {activeEvent?.id === 'floating-feather' && (
         <span className="living-floating-feather">⌁</span>
       )}
 
-      {activeEvent.id === 'snail-visit' && (
+      {activeEvent?.id === 'snail-visit' && (
         <span className="living-snail"><i /></span>
       )}
 
-      {activeEvent.id === 'duck-family' && (
+      {activeEvent?.id === 'duck-family' && (
         <span className="living-duck-family"><i /><i /><i /></span>
       )}
 
-      {activeEvent.id === 'frog-call' && (
+      {activeEvent?.id === 'frog-call' && (
         <span className="living-frog-call"><i /><i /></span>
       )}
 
-      {activeEvent.id === 'firefly-rest' && (
+      {activeEvent?.id === 'firefly-rest' && (
         <span className="living-firefly-rest" />
       )}
 
-      {activeEvent.id === 'bottle-glint' && (
+      {activeEvent?.id === 'bottle-glint' && (
         <span className="living-bottle-glint"><i /></span>
       )}
 
-      {activeEvent.id === 'heron-shadow' && (
+      {activeEvent?.id === 'heron-shadow' && (
         <span className="living-heron-shadow" />
       )}
 
 
-      {activeEvent.id === 'fog-lantern' && (
+      {activeEvent?.id === 'fog-lantern' && (
         <span className="living-fog-lantern"><i /></span>
       )}
 
-      {activeEvent.id === 'tadpole-ring' && (
+      {activeEvent?.id === 'tadpole-ring' && (
         <span className="living-tadpole-ring"><i /><i /><i /></span>
       )}
 
-      {activeEvent.id === 'acorn-drop' && (
+      {activeEvent?.id === 'acorn-drop' && (
         <span className="living-acorn-drop">●</span>
       )}
 
-      {activeEvent.id === 'goose-crossing' && (
+      {activeEvent?.id === 'goose-crossing' && (
         <span className="living-goose-crossing">⌄⌄⌄</span>
       )}
 
-      {activeEvent.id === 'moon-lotus' && (
+      {activeEvent?.id === 'moon-lotus' && (
         <span className="living-moon-lotus">✿</span>
       )}
 
-      {activeEvent.id === 'pond-whisper' && (
+      {activeEvent?.id === 'pond-whisper' && (
         <span className="living-pond-whisper">the pond remembers</span>
       )}
 
 
-      {activeEvent.id === 'kingfisher' && (
+      {activeEvent?.id === 'kingfisher' && (
         <span className="living-creature living-kingfisher">🐦</span>
       )}
 
-      {activeEvent.id === 'otter-visit' && (
+      {activeEvent?.id === 'otter-visit' && (
         <span className="living-creature living-otter">🦦</span>
       )}
 
-      {activeEvent.id === 'luna-moth' && (
+      {activeEvent?.id === 'luna-moth' && (
         <span className="living-creature living-luna-moth">✦</span>
       )}
 
-      {activeEvent.id === 'salamander' && (
+      {activeEvent?.id === 'salamander' && (
         <span className="living-creature living-salamander">🦎</span>
       )}
 
-      {activeEvent.id === 'koi-circle' && (
+      {activeEvent?.id === 'koi-circle' && (
         <span className="living-koi-circle"><i>◖</i><i>◗</i></span>
       )}
 
-      {activeEvent.id === 'beaver-ripple' && (
+      {activeEvent?.id === 'beaver-ripple' && (
         <span className="living-creature living-beaver">🦫</span>
       )}
 
-      {activeEvent.id === 'ladybug-landing' && (
+      {activeEvent?.id === 'ladybug-landing' && (
         <span className="living-creature living-ladybug">●</span>
       )}
 
-      {activeEvent.id === 'moon-hare-shadow' && (
+      {activeEvent?.id === 'moon-hare-shadow' && (
         <span className="living-creature living-moon-hare">🐇</span>
       )}
     </div>
