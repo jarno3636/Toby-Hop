@@ -28,7 +28,7 @@ function noStore(body: unknown, status = 200) {
 }
 
 function validKind(value: unknown): value is PondMemoryKind {
-  return value === 'event' || value === 'chain';
+  return value === 'event' || value === 'chain' || value === 'day';
 }
 
 function cleanKey(value: unknown): string | null {
