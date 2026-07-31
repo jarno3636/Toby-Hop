@@ -4450,3 +4450,271 @@ img {
 .pond-calendar-longest-night span::before { content:'✦'; color:#dce9ff; font-size:14px; text-shadow:0 0 10px rgba(170,195,255,.7); }
 @keyframes pondCalendarFloat { 0%,100%{opacity:0;transform:translateY(18px) rotate(-8deg) scale(.75)} 20%{opacity:.72} 55%{opacity:.9;transform:translateY(-18px) rotate(8deg) scale(1)} 82%{opacity:.35} }
 @media (prefers-reduced-motion: reduce) { .pond-calendar-scene { display:none; } }
+
+/* =========================================================
+   LIVING POND STORY + ATMOSPHERIC POLISH
+   ========================================================= */
+
+.hop-copy-story {
+  top: 22px;
+  right: 20px;
+  left: 20px;
+  padding: 14px 18px 22px;
+  border-radius: 0 0 28px 28px;
+  background: linear-gradient(180deg, rgba(3, 25, 31, 0.62) 0%, rgba(3, 25, 31, 0.26) 66%, transparent 100%);
+}
+
+.pond-field-label {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(210, 248, 238, 0.72);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: pondStoryReveal 520ms ease-out 80ms forwards;
+}
+
+.hop-copy-story h1 {
+  max-width: 520px;
+  margin-inline: auto;
+  font-size: clamp(1.75rem, 7.2vw, 2.45rem);
+  line-height: 1.02;
+  text-wrap: balance;
+  opacity: 0;
+  transform: translateY(5px);
+  animation: pondStoryReveal 680ms cubic-bezier(.22,.85,.3,1) 220ms forwards;
+}
+
+.pond-story-copy {
+  max-width: 360px !important;
+  margin-top: 12px !important;
+  color: rgba(235, 252, 247, 0.88) !important;
+  font-size: clamp(0.82rem, 3.3vw, 0.96rem) !important;
+  font-style: italic;
+  line-height: 1.48 !important;
+  text-wrap: pretty;
+  opacity: 0;
+  transform: translateY(4px);
+  animation: pondStoryReveal 720ms ease-out 520ms forwards;
+}
+
+.pond-story-return {
+  display: block;
+  max-width: 290px;
+  margin: 11px auto 0;
+  color: rgba(199, 236, 228, 0.62);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: pondStoryReveal 650ms ease-out 920ms forwards;
+}
+
+@keyframes pondStoryReveal {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.pond-card::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px rgba(255,255,255,.11),
+    inset 0 0 46px rgba(2,18,24,.18),
+    inset 0 -34px 70px rgba(0,16,23,.2);
+}
+
+.pond-depth-glow {
+  position: absolute;
+  z-index: 3;
+  left: 25%;
+  right: 25%;
+  top: 49%;
+  height: 34%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(ellipse, rgba(126,255,232,.13), transparent 68%);
+  filter: blur(11px);
+  animation: pondDepthBreathe 8s ease-in-out infinite;
+}
+
+@keyframes pondDepthBreathe {
+  0%,100% { opacity: .45; transform: scale(.96); }
+  50% { opacity: .85; transform: scale(1.04); }
+}
+
+.water-caustics {
+  position: absolute;
+  z-index: 5;
+  inset: 54% 4% 15%;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: .18;
+  mix-blend-mode: screen;
+}
+
+.water-caustics span {
+  position: absolute;
+  width: 52%;
+  height: 34%;
+  border: 1px solid rgba(175,255,241,.55);
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: causticDrift 11s ease-in-out infinite;
+}
+.water-caustics span:nth-child(1) { left: -8%; top: 12%; }
+.water-caustics span:nth-child(2) { right: -12%; top: 42%; animation-delay: -4s; }
+.water-caustics span:nth-child(3) { left: 34%; top: 67%; animation-delay: -7s; }
+
+@keyframes causticDrift {
+  0%,100% { transform: translate3d(-4px,0,0) scaleX(.9); opacity: .25; }
+  50% { transform: translate3d(8px,-3px,0) scaleX(1.08); opacity: .72; }
+}
+
+.moon-cloud {
+  position: absolute;
+  z-index: 4;
+  left: -22px;
+  width: 74px;
+  height: 13px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(214,242,239,.18), transparent);
+  filter: blur(5px);
+  opacity: 0;
+  animation: moonCloudPass 24s linear infinite;
+}
+.moon-cloud-one { top: 39px; }
+.moon-cloud-two { top: 64px; animation-delay: -13s; animation-duration: 31s; }
+
+@keyframes moonCloudPass {
+  0%, 26% { opacity: 0; transform: translateX(-24px); }
+  34%, 58% { opacity: .65; }
+  72%,100% { opacity: 0; transform: translateX(145px); }
+}
+
+.rare-sky-streak {
+  position: absolute;
+  z-index: 6;
+  top: 2px;
+  right: 8px;
+  width: 38px;
+  height: 1px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.9));
+  transform: rotate(-24deg);
+  filter: drop-shadow(0 0 4px rgba(190,245,255,.8));
+  animation: rareSkyStreak 37s ease-in-out infinite;
+}
+
+@keyframes rareSkyStreak {
+  0%, 88%,100% { opacity: 0; transform: translate(0,0) rotate(-24deg); }
+  90% { opacity: .95; }
+  94% { opacity: 0; transform: translate(-74px,40px) rotate(-24deg); }
+}
+
+.pond-foreground {
+  position: absolute;
+  z-index: 16;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.foreground-reed {
+  position: absolute;
+  bottom: -16px;
+  width: 18px;
+  height: 142px;
+  opacity: .28;
+  filter: blur(1.8px);
+  transform-origin: bottom center;
+  background: linear-gradient(90deg, transparent 40%, rgba(1,39,35,.82) 45% 57%, transparent 62%);
+  animation: foregroundReedSway 7.5s ease-in-out infinite;
+}
+.foreground-reed::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 3px;
+  width: 11px;
+  height: 31px;
+  border-radius: 70% 30% 70% 30%;
+  background: rgba(18,74,59,.82);
+}
+.foreground-reed-left { left: 3px; transform: rotate(-8deg); }
+.foreground-reed-right { right: 7px; transform: rotate(7deg) scaleX(-1); animation-delay: -3s; }
+
+@keyframes foregroundReedSway {
+  0%,100% { rotate: -1deg; }
+  50% { rotate: 3deg; }
+}
+
+.foreground-drift {
+  position: absolute;
+  top: 54%;
+  left: -12%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(205,255,244,.35);
+  box-shadow: 0 0 9px rgba(160,255,235,.34);
+  animation: foregroundDrift 28s linear infinite;
+}
+@keyframes foregroundDrift {
+  0%,8% { opacity: 0; transform: translate3d(0,12px,0) scale(.7); }
+  14%,86% { opacity: .8; }
+  100% { opacity: 0; transform: translate3d(760px,-40px,0) scale(1.25); }
+}
+
+.special-firefly:nth-child(4n) {
+  animation-timing-function: cubic-bezier(.34,.02,.48,1);
+  filter: drop-shadow(0 0 8px rgba(255,235,112,.95));
+}
+.special-firefly:nth-child(5n) {
+  animation-delay: -1.8s !important;
+}
+
+.hop-instruction {
+  padding: 10px 12px 8px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, transparent, rgba(2,29,34,.16));
+}
+
+.hop-instruction strong {
+  font-size: 1.03rem;
+  text-wrap: balance;
+}
+
+.hop-instruction span {
+  max-width: 310px;
+  margin-inline: auto;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+@media (max-width: 430px) {
+  .hop-copy-story { top: 18px; padding-inline: 10px; }
+  .hop-copy-story h1 { font-size: clamp(1.58rem, 7vw, 2rem); }
+  .pond-story-copy { max-width: 310px !important; font-size: .82rem !important; }
+  .pond-story-return { font-size: .58rem; }
+  .celestial-scene { top: 148px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pond-field-label,
+  .hop-copy-story h1,
+  .pond-story-copy,
+  .pond-story-return { opacity: 1; transform: none; animation: none; }
+  .pond-depth-glow,
+  .water-caustics span,
+  .moon-cloud,
+  .rare-sky-streak,
+  .foreground-reed,
+  .foreground-drift { animation: none !important; }
+}
