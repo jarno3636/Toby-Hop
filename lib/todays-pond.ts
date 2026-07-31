@@ -136,14 +136,33 @@ export function getPondSeason(date = new Date()): PondSeason {
   return 'winter';
 }
 
-function getWeather(dayKey: string, season: PondSeason): PondWeather {
-  const roll = hashString(`weather:${dayKey}`) % 100;
+function weatherFromRoll(roll: number, season: PondSeason): PondWeather {
   if (season === 'winter' && roll < 15) return 'snow';
   if (roll < 15) return 'fog';
   if (roll < 28) return 'drizzle';
   if (roll < 39) return 'rain';
   if (roll < 54) return 'wind';
   return 'clear';
+}
+
+function getWeather(dayKey: string, season: PondSeason): PondWeather {
+  const candidate = weatherFromRoll(hashString(`weather:${dayKey}`) % 100, season);
+  const previousDayKey = shiftDayKey(dayKey, -1);
+  const previousSeason = getPondSeason(dateFromDayKey(previousDayKey));
+  const previous = weatherFromRoll(hashString(`weather:${previousDayKey}`) % 100, previousSeason);
+
+  if (candidate !== previous) return candidate;
+
+  // Keep the weather deterministic while preventing obvious back-to-back loops.
+  const reroll = hashString(`weather-reroll:${dayKey}`) % 100;
+  const alternatives: PondWeather[] = season === 'winter'
+    ? ['clear', 'wind', 'fog', 'drizzle', 'snow', 'rain']
+    : ['clear', 'wind', 'fog', 'drizzle', 'rain'];
+
+  const rerolled = alternatives[reroll % alternatives.length];
+  return rerolled === previous
+    ? alternatives[(reroll + 1) % alternatives.length]
+    : rerolled;
 }
 
 function getMood(theme: PondThemeId, weather: PondWeather): PondMood {
@@ -185,9 +204,9 @@ function buildForecast(date: Date): PondForecast {
   };
 }
 
-function chooseThemeIndex(dayKey: string, season: PondSeason): number {
+function themeIdForDay(dayKey: string, season: PondSeason): PondThemeId {
   const seed = hashString(`pond:${dayKey}`);
-  if (seed % STARFALL_ODDS === 0) return THEMES.length - 1;
+  if (seed % STARFALL_ODDS === 0) return 'shooting-star';
 
   const seasonPools: Record<PondSeason, PondThemeId[]> = {
     spring: ['moon', 'rain', 'blossom', 'lotus', 'rainbow', 'fireflies'],
@@ -197,7 +216,34 @@ function chooseThemeIndex(dayKey: string, season: PondSeason): number {
   };
 
   const pool = seasonPools[season];
-  const selectedId = pool[seed % pool.length];
+  return pool[seed % pool.length];
+}
+
+function chooseThemeIndex(dayKey: string, season: PondSeason): number {
+  const candidate = themeIdForDay(dayKey, season);
+  const previousDayKey = shiftDayKey(dayKey, -1);
+  const previousSeason = getPondSeason(dateFromDayKey(previousDayKey));
+  const previous = themeIdForDay(previousDayKey, previousSeason);
+
+  let selectedId = candidate;
+  if (candidate === previous && candidate !== 'shooting-star') {
+    const pool: PondThemeId[] = season === 'spring'
+      ? ['moon', 'rain', 'blossom', 'lotus', 'rainbow', 'fireflies']
+      : season === 'summer'
+        ? ['moon', 'rain', 'fireflies', 'lotus', 'rainbow', 'blossom']
+        : season === 'autumn'
+          ? ['moon', 'rain', 'autumn', 'fireflies', 'lotus', 'rainbow']
+          : ['moon', 'winter', 'rain', 'shooting-star', 'rainbow'];
+
+    const candidateIndex = pool.indexOf(candidate);
+    const offset = 1 + (hashString(`pond-reroll:${dayKey}`) % (pool.length - 1));
+    selectedId = pool[(candidateIndex + offset) % pool.length];
+
+    if (selectedId === previous) {
+      selectedId = pool[(pool.indexOf(selectedId) + 1) % pool.length];
+    }
+  }
+
   return Math.max(0, THEMES.findIndex((theme) => theme.id === selectedId));
 }
 
@@ -206,8 +252,32 @@ function getCombinationLabel(weather: PondWeather, eventLabel: string, macroName
   return macroName ? `${weatherName} · ${eventLabel} · ${macroName}` : `${weatherName} · ${eventLabel}`;
 }
 
+function dateFromDayKey(dayKey: string): Date {
+  return new Date(`${dayKey}T00:00:00.000Z`);
+}
+
+function shiftDayKey(dayKey: string, amount: number): string {
+  const date = dateFromDayKey(dayKey);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return getUtcDayKey(date);
+}
+
 function pickDaily<T>(dayKey: string, namespace: string, values: readonly T[]): T {
   return values[hashString(`${namespace}:${dayKey}`) % values.length];
+}
+
+function pickDailyWithoutImmediateRepeat<T>(
+  dayKey: string,
+  namespace: string,
+  values: readonly T[],
+): T {
+  const selectedIndex = hashString(`${namespace}:${dayKey}`) % values.length;
+  if (values.length < 2) return values[selectedIndex];
+
+  const previousDayKey = shiftDayKey(dayKey, -1);
+  const previousIndex = hashString(`${namespace}:${previousDayKey}`) % values.length;
+
+  return values[selectedIndex === previousIndex ? (selectedIndex + 1) % values.length : selectedIndex];
 }
 
 function getDailyStory(
@@ -308,10 +378,10 @@ function getDailyStory(
   };
 
   return {
-    storyTitle: pickDaily(dayKey, 'story-title', titleByMood[mood]),
-    dailyNarrative: `${macroPrefix}${pickDaily(dayKey, 'story-body', narrativePool)}`,
-    interactionHint: pickDaily(dayKey, 'interaction-hint', seasonHint[season]),
-    visitStatus: pickDaily(dayKey, 'visit-status', [
+    storyTitle: pickDailyWithoutImmediateRepeat(dayKey, `story-title:${mood}`, titleByMood[mood]),
+    dailyNarrative: `${macroPrefix}${pickDailyWithoutImmediateRepeat(dayKey, `story-body:${theme}:${weather}`, narrativePool)}`,
+    interactionHint: pickDailyWithoutImmediateRepeat(dayKey, `interaction-hint:${season}`, seasonHint[season]),
+    visitStatus: pickDailyWithoutImmediateRepeat(dayKey, 'visit-status', [
       'The pond remembers your visit.',
       'Today’s ripple has been recorded.',
       'Toby will keep this moment until tomorrow.',
