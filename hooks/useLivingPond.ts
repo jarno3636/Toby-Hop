@@ -1,18 +1,31 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { sdk } from '@farcaster/miniapp-sdk';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  chooseLivingPondChain,
   chooseLivingPondEvent,
+  LIVING_POND_EVENTS,
   type FrogCue,
   type LivingPondContext,
+  type LivingPondEventChain,
   type LivingPondEventDefinition,
   type LivingPondEventId,
 } from '@/lib/living-pond';
+import {
+  chainMemoryPenalty,
+  memoryPenalty,
+  type PondEventMemoryItem,
+  type PondEventMemoryResponse,
+  type PondMemoryKind,
+} from '@/lib/pond/event-memory';
 
 const FIRST_EVENT_MIN_MS = 3_800;
 const FIRST_EVENT_MAX_MS = 8_500;
 const EVENT_GAP_MIN_MS = 16_000;
 const EVENT_GAP_MAX_MS = 39_000;
+const CHAIN_CHANCE = 0.14;
+const CHAIN_STEP_GAP_MS = 650;
 const FROG_CUE_MIN_MS = 8_000;
 const FROG_CUE_MAX_MS = 19_000;
 
@@ -30,40 +43,81 @@ function randomIdleCue(): FrogCue {
   return 'sleepy';
 }
 
+function definitionFor(id: LivingPondEventId): LivingPondEventDefinition | null {
+  return LIVING_POND_EVENTS.find((event) => event.id === id) ?? null;
+}
+
 export function useLivingPond(context: LivingPondContext) {
-  const [activeEvent, setActiveEvent] =
-    useState<LivingPondEventDefinition | null>(null);
+  const [activeEvent, setActiveEvent] = useState<LivingPondEventDefinition | null>(null);
+  const [activeChain, setActiveChain] = useState<LivingPondEventChain | null>(null);
   const [frogCue, setFrogCue] = useState<FrogCue>('idle');
+  const [memory, setMemory] = useState<PondEventMemoryItem[]>([]);
+  const memoryRef = useRef<PondEventMemoryItem[]>([]);
   const recentRef = useRef<LivingPondEventId[]>([]);
   const mountedRef = useRef(false);
   const previousTodayHoppedRef = useRef(context.todayHopped);
 
-  const stableContext = useMemo(
-    () => context,
-    [
-      context.themeId,
-      context.moonPhase,
-      context.raining,
-      context.snowing,
-      context.fireflies,
-      context.autumn,
-      context.lotus,
-      context.golden,
-      context.busy,
-      context.todayHopped,
-      context.streak,
-      context.hour,
-      context.season,
-      context.weather,
-      context.mood,
-    ],
-  );
+  const stableContext = useMemo(() => context, [
+    context.themeId, context.moonPhase, context.raining, context.snowing,
+    context.fireflies, context.autumn, context.lotus, context.golden,
+    context.busy, context.todayHopped, context.streak, context.hour,
+    context.season, context.weather, context.mood, context.macroEventKey,
+  ]);
+
+  const memoryContext = useMemo(() => ({
+    dayKey: new Date().toISOString().slice(0, 10),
+    weather: stableContext.weather,
+    season: stableContext.season,
+    mood: stableContext.mood,
+    themeId: stableContext.themeId,
+    moonPhase: stableContext.moonPhase,
+    macroEventKey: stableContext.macroEventKey ?? null,
+  }), [stableContext]);
+
+  const recordMemory = useCallback(async (key: string, kind: PondMemoryKind) => {
+    try {
+      const response = await sdk.quickAuth.fetch('/api/event-memory', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ key, kind, context: memoryContext }),
+      });
+      if (!response.ok) return;
+      const now = new Date().toISOString();
+      setMemory((current) => {
+        const existing = current.find((item) => item.key === key && item.kind === kind);
+        const next = !existing
+          ? [{ key, kind, seenCount: 1, firstSeenAt: now, lastSeenAt: now }, ...current]
+          : current.map((item) => item === existing
+              ? { ...item, seenCount: item.seenCount + 1, lastSeenAt: now }
+              : item);
+        memoryRef.current = next;
+        return next;
+      });
+    } catch {
+      // Ambient memory should never interrupt the pond experience.
+    }
+  }, [memoryContext]);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await sdk.quickAuth.fetch('/api/event-memory', {
+          method: 'GET', cache: 'no-store', headers: { accept: 'application/json' },
+        });
+        if (!response.ok) return;
+        const body = await response.json() as PondEventMemoryResponse;
+        if (!cancelled && Array.isArray(body.items)) {
+          memoryRef.current = body.items;
+          setMemory(body.items);
+        }
+      } catch {
+        // The app remains fully usable outside authenticated Mini App contexts.
+      }
+    })();
+    return () => { cancelled = true; mountedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -79,33 +133,68 @@ export function useLivingPond(context: LivingPondContext) {
   useEffect(() => {
     if (stableContext.busy) {
       setActiveEvent(null);
+      setActiveChain(null);
       return;
     }
 
-    let eventEndTimer: number | undefined;
-    let nextEventTimer: number | undefined;
+    const timers: number[] = [];
     let cancelled = false;
 
-    const schedule = (first = false) => {
-      const delay = first
-        ? between(FIRST_EVENT_MIN_MS, FIRST_EVENT_MAX_MS)
-        : between(EVENT_GAP_MIN_MS, EVENT_GAP_MAX_MS);
+    const later = (fn: () => void, delay: number) => {
+      const timer = window.setTimeout(fn, delay);
+      timers.push(timer);
+    };
 
-      nextEventTimer = window.setTimeout(() => {
+    const schedule = (first = false) => {
+      const delay = first ? between(FIRST_EVENT_MIN_MS, FIRST_EVENT_MAX_MS) : between(EVENT_GAP_MIN_MS, EVENT_GAP_MAX_MS);
+      later(() => {
         if (cancelled || !mountedRef.current) return;
 
-        const event = chooseLivingPondEvent(stableContext, recentRef.current);
-        if (!event) {
-          schedule(false);
+        const chain = Math.random() < CHAIN_CHANCE
+          ? chooseLivingPondChain(stableContext, (id) => chainMemoryPenalty(id, memoryRef.current))
+          : null;
+
+        if (chain) {
+          setActiveChain(chain);
+          void recordMemory(chain.id, 'chain');
+          let offset = 0;
+          chain.steps.forEach((stepId, index) => {
+            const event = definitionFor(stepId);
+            if (!event || !event.allowed(stableContext)) return;
+            later(() => {
+              if (cancelled) return;
+              setActiveEvent(event);
+              if (event.frogCue) setFrogCue(event.frogCue);
+              recentRef.current = [event.id, ...recentRef.current].slice(0, 6);
+              void recordMemory(event.id, 'event');
+            }, offset);
+            offset += event.durationMs + CHAIN_STEP_GAP_MS;
+            if (index === chain.steps.length - 1) {
+              later(() => {
+                if (cancelled) return;
+                setActiveEvent(null);
+                setActiveChain(null);
+                setFrogCue('idle');
+                schedule(false);
+              }, offset);
+            }
+          });
           return;
         }
 
+        const event = chooseLivingPondEvent(
+          stableContext,
+          recentRef.current,
+          (id) => memoryPenalty(id, memoryRef.current),
+        );
+        if (!event) { schedule(false); return; }
+
         setActiveEvent(event);
         if (event.frogCue) setFrogCue(event.frogCue);
+        recentRef.current = [event.id, ...recentRef.current].slice(0, 6);
+        void recordMemory(event.id, 'event');
 
-        recentRef.current = [event.id, ...recentRef.current].slice(0, 4);
-
-        eventEndTimer = window.setTimeout(() => {
+        later(() => {
           if (cancelled || !mountedRef.current) return;
           setActiveEvent(null);
           setFrogCue('idle');
@@ -115,21 +204,14 @@ export function useLivingPond(context: LivingPondContext) {
     };
 
     schedule(true);
-
-    return () => {
-      cancelled = true;
-      if (nextEventTimer) window.clearTimeout(nextEventTimer);
-      if (eventEndTimer) window.clearTimeout(eventEndTimer);
-    };
-  }, [stableContext]);
+    return () => { cancelled = true; timers.forEach((timer) => window.clearTimeout(timer)); };
+  }, [recordMemory, stableContext]);
 
   useEffect(() => {
     if (stableContext.busy || activeEvent) return;
-
     let resetTimer: number | undefined;
     let cueTimer: number | undefined;
     let cancelled = false;
-
     const scheduleCue = () => {
       cueTimer = window.setTimeout(() => {
         if (cancelled || activeEvent) return;
@@ -142,9 +224,7 @@ export function useLivingPond(context: LivingPondContext) {
         }, cue === 'double-blink' ? 1_050 : 760);
       }, between(FROG_CUE_MIN_MS, FROG_CUE_MAX_MS));
     };
-
     scheduleCue();
-
     return () => {
       cancelled = true;
       if (cueTimer) window.clearTimeout(cueTimer);
@@ -152,8 +232,5 @@ export function useLivingPond(context: LivingPondContext) {
     };
   }, [activeEvent, stableContext.busy]);
 
-  return {
-    activeEvent,
-    frogCue,
-  };
+  return { activeEvent, activeChain, frogCue, memoryReady: memory.length > 0 };
 }
