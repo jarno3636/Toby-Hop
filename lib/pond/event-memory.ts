@@ -1,6 +1,6 @@
 import type { LivingPondEventId } from '@/lib/living-pond';
 
-export type PondMemoryKind = 'event' | 'chain';
+export type PondMemoryKind = 'event' | 'chain' | 'day';
 
 export type PondEventMemoryItem = {
   key: string;
