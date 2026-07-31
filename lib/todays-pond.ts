@@ -65,6 +65,10 @@ export type TodaysPond = {
     visualKind: SeasonalVisualKind;
   };
   combinationLabel: string;
+  storyTitle: string;
+  dailyNarrative: string;
+  interactionHint: string;
+  visitStatus: string;
 };
 
 export const GOLDEN_TOBY_ODDS = 1000;
@@ -72,7 +76,7 @@ export const GOLDEN_TOBY_PERCENT = 100 / GOLDEN_TOBY_ODDS;
 export const STARFALL_ODDS = 97;
 export const STARFALL_PERCENT = 100 / STARFALL_ODDS;
 
-const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'weather' | 'mood' | 'curiosityTitle' | 'curiosityBody' | 'forecast' | 'eventKind' | 'eventLabel' | 'weatherLabel' | 'weatherEmoji' | 'macroEvent' | 'combinationLabel'>> = [
+const THEMES: Array<Omit<TodaysPond, 'goldenToby' | 'moonPhase' | 'season' | 'weather' | 'mood' | 'curiosityTitle' | 'curiosityBody' | 'forecast' | 'eventKind' | 'eventLabel' | 'weatherLabel' | 'weatherEmoji' | 'macroEvent' | 'combinationLabel' | 'storyTitle' | 'dailyNarrative' | 'interactionHint' | 'visitStatus'>> = [
   { id: 'moon', name: 'Moonlit Pond', emoji: '🌙', description: 'Still water beneath the moon', particleCount: 0 },
   { id: 'rain', name: 'Rainy Pond', emoji: '🌧️', description: 'Soft rain ripples across the pond', particle: 'drop', particleCount: 18 },
   { id: 'fireflies', name: 'Firefly Pond', emoji: '✨', description: 'Tiny lights dance above the reeds', particle: 'firefly', particleCount: 13 },
@@ -202,6 +206,120 @@ function getCombinationLabel(weather: PondWeather, eventLabel: string, macroName
   return macroName ? `${weatherName} · ${eventLabel} · ${macroName}` : `${weatherName} · ${eventLabel}`;
 }
 
+function pickDaily<T>(dayKey: string, namespace: string, values: readonly T[]): T {
+  return values[hashString(`${namespace}:${dayKey}`) % values.length];
+}
+
+function getDailyStory(
+  dayKey: string,
+  theme: PondThemeId,
+  weather: PondWeather,
+  season: PondSeason,
+  moonPhase: MoonPhase,
+  macroName?: string,
+): { storyTitle: string; dailyNarrative: string; interactionHint: string; visitStatus: string } {
+  const weatherStories: Record<PondWeather, readonly string[]> = {
+    clear: [
+      'The water has been holding the sky so carefully that even the reeds seem reluctant to interrupt it.',
+      'A bright path crossed the pond before sunrise, then vanished beneath the lilies.',
+      'The far bank looks ordinary today. Toby does not seem convinced.',
+    ],
+    drizzle: [
+      'Small rings have been writing and rewriting the same quiet message across the water.',
+      'The drizzle softened every sound except the tiny footsteps near the reeds.',
+      'A silver rain has followed Toby from one lily pad to the next.',
+    ],
+    rain: [
+      'The rain arrived before dawn and left the whole pond speaking in ripples.',
+      'Something splashed beyond the reeds just as the heaviest rain began.',
+      'The shoreline is darker today, as though the pond is keeping a secret.',
+    ],
+    fog: [
+      'The far bank disappeared before sunrise, but something still moved beyond the reeds.',
+      'The mist has hidden the shoreline and left only the nearest lily pads behind.',
+      'Toby has been watching one pale shape drift where the water should be empty.',
+    ],
+    wind: [
+      'The breeze carried a small story across the pond, but the reeds would not repeat it.',
+      'Every leaf is moving in the same direction except one.',
+      'The wind crossed the pond twice today. The second time, Toby looked up.',
+    ],
+    snow: [
+      'The pond woke beneath a hush so complete that one tiny track became a whole mystery.',
+      'Snow gathered at the shoreline while the center of the pond stayed strangely clear.',
+      'Everything is white today except the path leading toward Toby.',
+    ],
+  };
+
+  const themeStories: Partial<Record<PondThemeId, readonly string[]>> = {
+    fireflies: [
+      'The first light appeared near the reeds. A hundred more followed without a sound.',
+      'One firefly has been circling Toby as though it recognizes him.',
+    ],
+    blossom: [
+      'A blossom landed beside Toby and refused to drift away.',
+      'The petals arrived one at a time until the pond looked as though it had remembered spring.',
+    ],
+    lotus: [
+      'A lotus opened earlier than the others, facing the place where Toby waits.',
+      'The newest bloom holds one bright drop that has not fallen all morning.',
+    ],
+    autumn: [
+      'A red leaf has circled the pond three times without touching the shore.',
+      'The oldest leaf in the pond drifted back toward the tree it came from.',
+    ],
+    rainbow: [
+      'For one moment, the pond held every color without disturbing a single ripple.',
+      'The rainbow touched the water exactly where Toby had been looking.',
+    ],
+    'shooting-star': [
+      'A bright line crossed the sky and left a second reflection behind.',
+      'Toby looked up before the star appeared, as though he already knew.',
+    ],
+    moon: [
+      moonPhase === 'full'
+        ? 'The moon will fit perfectly inside the pond tonight. Toby appears to be waiting for it.'
+        : 'Moonlight reached the pond in a narrow silver path and stopped beside Toby.',
+    ],
+    winter: [
+      'The cold has made the pond quiet enough to hear the reeds settle.',
+    ],
+    rain: [
+      'Every raindrop found the pond. One seemed to find Toby.',
+    ],
+  };
+
+  const titleByMood: Record<PondMood, readonly string[]> = {
+    bright: ['A bright little mystery', 'The pond wakes gently', 'Something near the lilies'],
+    quiet: ['The ripple remains', 'A quiet note from the pond', 'Still water, small signs'],
+    restless: ['The reeds are speaking', 'A story crossed the water', 'The pond will not sit still'],
+    mysterious: ['Beyond the nearest reeds', 'The shoreline disappeared', 'Something moved in the mist'],
+    glowing: ['Lights over the water', 'The pond kept one bright secret', 'A glow among the lilies'],
+  };
+
+  const mood = getMood(theme, weather);
+  const narrativePool = themeStories[theme]?.length ? themeStories[theme]! : weatherStories[weather];
+  const macroPrefix = macroName ? `${macroName} has touched the pond. ` : '';
+  const seasonHint: Record<PondSeason, readonly string[]> = {
+    spring: ['Toby seems curious today.', 'Something new is stirring near the reeds.'],
+    summer: ['Stay a moment. The pond is still waking up.', 'Toby keeps glancing toward the water.'],
+    autumn: ['Watch the drifting leaves.', 'Toby seems to be listening.'],
+    winter: ['The quiet may reveal something.', 'Look closely at the shoreline.'],
+  };
+
+  return {
+    storyTitle: pickDaily(dayKey, 'story-title', titleByMood[mood]),
+    dailyNarrative: `${macroPrefix}${pickDaily(dayKey, 'story-body', narrativePool)}`,
+    interactionHint: pickDaily(dayKey, 'interaction-hint', seasonHint[season]),
+    visitStatus: pickDaily(dayKey, 'visit-status', [
+      'The pond remembers your visit.',
+      'Today’s ripple has been recorded.',
+      'Toby will keep this moment until tomorrow.',
+      'Your visit has become part of the pond.',
+    ] as const),
+  };
+}
+
 function buildDailyPond(date: Date, includeForecast: boolean): TodaysPond {
   const dayKey = getUtcDayKey(date);
   const moonSeed = hashString(`moon:${dayKey}`);
@@ -221,6 +339,8 @@ function buildDailyPond(date: Date, includeForecast: boolean): TodaysPond {
     description: seasonal.description,
     visualKind: seasonal.visualKind,
   } : null;
+
+  const story = getDailyStory(dayKey, theme.id, weather, season, moonPhase, macroEvent?.name);
 
   return {
     ...theme,
@@ -247,6 +367,7 @@ function buildDailyPond(date: Date, includeForecast: boolean): TodaysPond {
     weatherEmoji: weatherDetails.emoji,
     macroEvent,
     combinationLabel: getCombinationLabel(weather, event.label, macroEvent?.name),
+    ...story,
   };
 }
 
