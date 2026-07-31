@@ -4613,18 +4613,26 @@ export function TobyHopApp() {
               .filter(Boolean)
               .join(' ')}
           >
-            <div className="hop-copy">
-              <h1>
-                {user.today_hopped
-                  ? 'The ripple remains'
-                  : 'Ready to hop'}
-              </h1>
-
-              <p>
-                {user.today_hopped
-                  ? 'Return tomorrow for another hop'
-                  : 'Exchange one small drop for TOBY'}
-              </p>
+            <div
+              className={[
+                'hop-copy',
+                user.today_hopped ? 'hop-copy-story' : '',
+              ].filter(Boolean).join(' ')}
+            >
+              {user.today_hopped ? (
+                <>
+                  <span className="pond-field-label">Today’s field note</span>
+                  <h1>{todaysPond.storyTitle}</h1>
+                  <p className="pond-story-copy">“{todaysPond.dailyNarrative}”</p>
+                  <span className="pond-story-return">Return tomorrow for another hop</span>
+                </>
+              ) : (
+                <>
+                  <span className="pond-field-label">Today at the pond</span>
+                  <h1>Ready to hop</h1>
+                  <p>Exchange one small drop for TOBY</p>
+                </>
+              )}
             </div>
 
             <div
@@ -4637,6 +4645,9 @@ export function TobyHopApp() {
             >
               <div className="moon-glow moon-glow-outer" />
               <div className="moon-glow moon-glow-inner" />
+              <span className="moon-cloud moon-cloud-one" />
+              <span className="moon-cloud moon-cloud-two" />
+              <span className="rare-sky-streak" />
 
               <div
                 className={[
@@ -4885,7 +4896,9 @@ export function TobyHopApp() {
               </div>
             ) : null}
 
+            <div className="pond-depth-glow" aria-hidden="true" />
             <div className="water" />
+            <div className="water-caustics" aria-hidden="true"><span /><span /><span /></div>
 
             <div className="ripple ripple-one" />
             <div className="ripple ripple-two" />
@@ -4893,6 +4906,11 @@ export function TobyHopApp() {
 
             <div className="lily l1" />
             <div className="lily l2" />
+            <div className="pond-foreground" aria-hidden="true">
+              <span className="foreground-reed foreground-reed-left" />
+              <span className="foreground-reed foreground-reed-right" />
+              <span className="foreground-drift" />
+            </div>
 
             <button
               type="button"
@@ -4980,7 +4998,7 @@ export function TobyHopApp() {
             >
               <strong>
                 {user.today_hopped
-                  ? 'Today’s hop is complete'
+                  ? todaysPond.visitStatus
                   : hopStatus[
                       hopState
                     ]}
@@ -4988,7 +5006,7 @@ export function TobyHopApp() {
 
               <span>
                 {user.today_hopped
-                  ? 'Tap Toby—he may react differently'
+                  ? todaysPond.interactionHint
                   : hopSubtext[
                       hopState
                     ]}
