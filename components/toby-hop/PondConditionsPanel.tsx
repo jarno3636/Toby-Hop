@@ -760,7 +760,7 @@ export function PondConditionsPanel({
 
           <div className="pond-golden-activity-row">
             <span>
-              Pond activity
+              Today’s activity
             </span>
 
             <ActivityStars
@@ -799,7 +799,7 @@ export function PondConditionsPanel({
 
           {!goldenWatch.active ? (
             <small className="pond-golden-disclaimer">
-              The activity reading reflects today’s pond conditions. The actual global Golden Toby chance remains{' '}
+              This is a daily reading calculated from today’s pond conditions, not a cumulative tracker. The actual global Golden Toby chance remains{' '}
               <strong>
                 {goldenWatch.chanceLabel}
               </strong>

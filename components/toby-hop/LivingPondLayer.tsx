@@ -78,7 +78,7 @@ export function LivingPondLayer({
   onEventChange,
   ...context
 }: LivingPondLayerProps) {
-  const { activeEvent, activeChain, activeWonder, frogCue } = useLivingPond(context);
+  const { activeEvent, activeWonder, frogCue } = useLivingPond(context);
 
   useEffect(() => {
     onFrogCueChange(
@@ -159,9 +159,6 @@ export function LivingPondLayer({
         </span>
       )}
 
-      {activeEvent && activeChain && (
-        <span className="living-chain-caption">{activeChain.title}</span>
-      )}
 
       {activeEvent?.id === 'butterfly' && (
         <span className="living-butterfly">✦</span>
