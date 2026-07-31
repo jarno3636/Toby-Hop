@@ -76,6 +76,59 @@ export type LivingPondEventDefinition = {
 
 const nightHours = (hour: number) => hour >= 19 || hour < 6;
 
+export type LivingPondEventChain = {
+  id: string;
+  title: string;
+  weight: number;
+  steps: readonly LivingPondEventId[];
+  allowed: (context: LivingPondContext) => boolean;
+};
+
+export const LIVING_POND_CHAINS: readonly LivingPondEventChain[] = [
+  {
+    id: 'dragonfly-ripple-kingfisher',
+    title: 'Something crossed the bright water…',
+    weight: 5,
+    steps: ['dragonfly', 'fish-jump', 'kingfisher'],
+    allowed: ({ busy, raining, snowing, hour }) => !busy && !raining && !snowing && hour >= 7 && hour < 18,
+  },
+  {
+    id: 'reeds-leaf-lily',
+    title: 'The breeze carried a small story.',
+    weight: 8,
+    steps: ['reed-rustle', 'drifting-leaf', 'lily-turn'],
+    allowed: ({ busy, snowing }) => !busy && !snowing,
+  },
+  {
+    id: 'moon-whisper-owl',
+    title: 'The moon disturbed the quiet.',
+    weight: 3,
+    steps: ['moon-gaze', 'pond-whisper', 'owl'],
+    allowed: ({ busy, raining, snowing, hour }) => !busy && !raining && !snowing && nightHours(hour),
+  },
+  {
+    id: 'rain-snail-salamander',
+    title: 'Rain brought visitors from the bank.',
+    weight: 5,
+    steps: ['reed-rustle', 'snail-visit', 'salamander'],
+    allowed: ({ busy, snowing, weather }) => !busy && !snowing && (weather === 'rain' || weather === 'drizzle'),
+  },
+  {
+    id: 'firefly-lotus-moth',
+    title: 'The lights gathered around the lotus.',
+    weight: 4,
+    steps: ['firefly-rest', 'lotus-whisper', 'luna-moth'],
+    allowed: ({ busy, raining, fireflies, lotus, hour }) => !busy && !raining && fireflies && lotus && nightHours(hour),
+  },
+  {
+    id: 'bubbles-turtle-otter',
+    title: 'A ripple became a visitor.',
+    weight: 3,
+    steps: ['bubble-trail', 'turtle', 'otter-visit'],
+    allowed: ({ busy, snowing, weather }) => !busy && !snowing && weather !== 'fog',
+  },
+] as const;
+
 export const LIVING_POND_EVENTS: readonly LivingPondEventDefinition[] = [
   {
     id: 'water-sparkle',
@@ -322,21 +375,43 @@ export const LIVING_POND_EVENTS: readonly LivingPondEventDefinition[] = [
 export function chooseLivingPondEvent(
   context: LivingPondContext,
   recent: readonly LivingPondEventId[],
+  weightMultiplier: (eventId: LivingPondEventId) => number = () => 1,
   random = Math.random,
 ): LivingPondEventDefinition | null {
-  const candidates = LIVING_POND_EVENTS.filter(
-    (event) => event.allowed(context) && !recent.includes(event.id),
-  );
+  const candidates = LIVING_POND_EVENTS
+    .filter((event) => event.allowed(context) && !recent.includes(event.id))
+    .map((event) => ({ event, effectiveWeight: event.weight * Math.max(0, weightMultiplier(event.id)) }))
+    .filter((candidate) => candidate.effectiveWeight > 0);
 
   if (candidates.length === 0) return null;
 
-  const total = candidates.reduce((sum, event) => sum + event.weight, 0);
+  const total = candidates.reduce((sum, candidate) => sum + candidate.effectiveWeight, 0);
   let cursor = random() * total;
 
-  for (const event of candidates) {
-    cursor -= event.weight;
-    if (cursor <= 0) return event;
+  for (const candidate of candidates) {
+    cursor -= candidate.effectiveWeight;
+    if (cursor <= 0) return candidate.event;
   }
 
-  return candidates[candidates.length - 1] ?? null;
+  return candidates[candidates.length - 1]?.event ?? null;
+}
+
+export function chooseLivingPondChain(
+  context: LivingPondContext,
+  weightMultiplier: (chainId: string) => number = () => 1,
+  random = Math.random,
+): LivingPondEventChain | null {
+  const candidates = LIVING_POND_CHAINS
+    .filter((chain) => chain.allowed(context))
+    .map((chain) => ({ chain, effectiveWeight: chain.weight * Math.max(0, weightMultiplier(chain.id)) }))
+    .filter((candidate) => candidate.effectiveWeight > 0);
+
+  if (candidates.length === 0) return null;
+  const total = candidates.reduce((sum, candidate) => sum + candidate.effectiveWeight, 0);
+  let cursor = random() * total;
+  for (const candidate of candidates) {
+    cursor -= candidate.effectiveWeight;
+    if (cursor <= 0) return candidate.chain;
+  }
+  return candidates[candidates.length - 1]?.chain ?? null;
 }
