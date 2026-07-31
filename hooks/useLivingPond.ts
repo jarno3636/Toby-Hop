@@ -56,11 +56,13 @@ export function useLivingPond(context: LivingPondContext) {
   const [frogCue, setFrogCue] = useState<FrogCue>('idle');
   const [activeWonder, setActiveWonder] = useState<PondWonder | null>(null);
   const [memory, setMemory] = useState<PondEventMemoryItem[]>([]);
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   const memoryRef = useRef<PondEventMemoryItem[]>([]);
   const recentRef = useRef<LivingPondEventId[]>([]);
   const mountedRef = useRef(false);
   const previousTodayHoppedRef = useRef(context.todayHopped);
   const wonderShownRef = useRef(false);
+  const dailyMemoryRecordedRef = useRef<string | null>(null);
 
   const stableContext = useMemo(() => context, [
     context.themeId, context.moonPhase, context.raining, context.snowing,
@@ -120,10 +122,18 @@ export function useLivingPond(context: LivingPondContext) {
         }
       } catch {
         // The app remains fully usable outside authenticated Mini App contexts.
+      } finally {
+        if (!cancelled) setMemoryLoaded(true);
       }
     })();
     return () => { cancelled = true; mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    if (!memoryLoaded || dailyMemoryRecordedRef.current === memoryContext.dayKey) return;
+    dailyMemoryRecordedRef.current = memoryContext.dayKey;
+    void recordMemory(`daily:${memoryContext.dayKey}`, 'day');
+  }, [memoryContext.dayKey, memoryLoaded, recordMemory]);
 
   useEffect(() => {
     if (!previousTodayHoppedRef.current && stableContext.todayHopped) {
@@ -136,7 +146,7 @@ export function useLivingPond(context: LivingPondContext) {
   }, [stableContext.todayHopped]);
 
   useEffect(() => {
-    if (stableContext.busy) {
+    if (stableContext.busy || !memoryLoaded) {
       setActiveEvent(null);
       setActiveChain(null);
       return;
@@ -160,31 +170,35 @@ export function useLivingPond(context: LivingPondContext) {
           : null;
 
         if (chain) {
-          setActiveChain(chain);
-          void recordMemory(chain.id, 'chain');
-          let offset = 0;
-          chain.steps.forEach((stepId, index) => {
-            const event = definitionFor(stepId);
-            if (!event || !event.allowed(stableContext)) return;
-            later(() => {
-              if (cancelled) return;
-              setActiveEvent(event);
-              if (event.frogCue) setFrogCue(event.frogCue);
-              recentRef.current = [event.id, ...recentRef.current].slice(0, 6);
-              void recordMemory(event.id, 'event');
-            }, offset);
-            offset += event.durationMs + CHAIN_STEP_GAP_MS;
-            if (index === chain.steps.length - 1) {
+          const validSteps = chain.steps
+            .map(definitionFor)
+            .filter((event): event is LivingPondEventDefinition => Boolean(event?.allowed(stableContext)));
+
+          if (validSteps.length >= 2) {
+            setActiveChain(chain);
+            void recordMemory(chain.id, 'chain');
+            let offset = 0;
+
+            validSteps.forEach((event) => {
               later(() => {
                 if (cancelled) return;
-                setActiveEvent(null);
-                setActiveChain(null);
-                setFrogCue('idle');
-                schedule(false);
+                setActiveEvent(event);
+                if (event.frogCue) setFrogCue(event.frogCue);
+                recentRef.current = [event.id, ...recentRef.current].slice(0, 8);
+                void recordMemory(event.id, 'event');
               }, offset);
-            }
-          });
-          return;
+              offset += event.durationMs + CHAIN_STEP_GAP_MS;
+            });
+
+            later(() => {
+              if (cancelled) return;
+              setActiveEvent(null);
+              setActiveChain(null);
+              setFrogCue('idle');
+              schedule(false);
+            }, offset);
+            return;
+          }
         }
 
         const event = chooseLivingPondEvent(
@@ -196,7 +210,7 @@ export function useLivingPond(context: LivingPondContext) {
 
         setActiveEvent(event);
         if (event.frogCue) setFrogCue(event.frogCue);
-        recentRef.current = [event.id, ...recentRef.current].slice(0, 6);
+        recentRef.current = [event.id, ...recentRef.current].slice(0, 8);
         void recordMemory(event.id, 'event');
 
         later(() => {
@@ -210,7 +224,7 @@ export function useLivingPond(context: LivingPondContext) {
 
     schedule(true);
     return () => { cancelled = true; timers.forEach((timer) => window.clearTimeout(timer)); };
-  }, [recordMemory, stableContext]);
+  }, [memoryLoaded, recordMemory, stableContext]);
 
   useEffect(() => {
     if (stableContext.busy || activeWonder || wonderShownRef.current) return;
@@ -256,5 +270,5 @@ export function useLivingPond(context: LivingPondContext) {
     };
   }, [activeEvent, stableContext.busy]);
 
-  return { activeEvent, activeChain, activeWonder, frogCue, memoryReady: memory.length > 0 };
+  return { activeEvent, activeChain, activeWonder, frogCue, memoryReady: memoryLoaded, memoryCount: memory.length };
 }
