@@ -1,20 +1,19 @@
-import {
-  NextResponse,
-} from 'next/server';
+import { NextResponse } from 'next/server';
 
-import {
-  supabaseAdmin,
-} from '@/lib/supabase/admin';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 import type {
   LeaderboardKind,
+  LeaderboardResponse,
 } from '@/lib/types';
 
-const VALID_KINDS =
-  new Set<LeaderboardKind>([
-    'streak',
-    'hops',
-    'toby',
-  ]);
+const VALID_KINDS = new Set<LeaderboardKind>([
+  'streak',
+  'hops',
+  'toby',
+]);
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
 
 type LeaderboardUserRow = {
   fid: number | null;
@@ -30,227 +29,132 @@ type LeaderboardUserRow = {
   last_hop_at: string | null;
 };
 
-function compareAtomicDesc(
-  first: string | null,
-  second: string | null,
+function parsePositiveInteger(
+  value: string | null,
+  fallback: number,
 ): number {
-  const a =
-    BigInt(first || '0');
+  const parsed = Number(value);
 
-  const b =
-    BigInt(second || '0');
-
-  if (a === b) {
-    return 0;
-  }
-
-  return a > b ? -1 : 1;
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? parsed
+    : fallback;
 }
 
-function sortRows(
-  rows: LeaderboardUserRow[],
-  kind: LeaderboardKind,
-): LeaderboardUserRow[] {
-  return [...rows]
-    .filter((row) =>
-      Number(row.total_hops ?? 0) > 0 &&
-      Boolean(row.last_hop_at),
-    )
-    .sort((a, b) => {
-      if (kind === 'toby') {
-        const tobyCompare =
-          compareAtomicDesc(
-            a.total_toby_atomic,
-            b.total_toby_atomic,
-          );
-
-        if (tobyCompare !== 0) {
-          return tobyCompare;
-        }
-      }
-
-      if (kind === 'hops') {
-        const hopCompare =
-          Number(b.total_hops ?? 0) -
-          Number(a.total_hops ?? 0);
-
-        if (hopCompare !== 0) {
-          return hopCompare;
-        }
-      }
-
-      const streakCompare =
-        Number(b.current_streak ?? 0) -
-        Number(a.current_streak ?? 0);
-
-      if (streakCompare !== 0) {
-        return streakCompare;
-      }
-
-      const longestCompare =
-        Number(b.longest_streak ?? 0) -
-        Number(a.longest_streak ?? 0);
-
-      if (longestCompare !== 0) {
-        return longestCompare;
-      }
-
-      return (
-        Number(b.total_hops ?? 0) -
-        Number(a.total_hops ?? 0)
-      );
-    });
-}
-
-function mapRows(
-  rows: LeaderboardUserRow[],
-  kind: LeaderboardKind,
-) {
-  return sortRows(
-    rows,
-    kind,
-  )
-    .slice(0, 100)
-    .map((row, index) => ({
-      rank:
-        index + 1,
-      fid:
-        row.fid,
-      username:
-        row.username,
-      display_name:
-        row.display_name,
-      pfp_url:
-        row.pfp_url,
-      wallet_address:
-        row.wallet_address,
-      total_hops:
-        row.total_hops ?? 0,
-      current_streak:
-        row.current_streak ?? 0,
-      longest_streak:
-        row.longest_streak ?? 0,
-      total_toby_atomic:
-        row.total_toby_atomic ?? '0',
-      current_title:
-        row.current_title ?? 'Pond Hopper',
-      last_hop_at:
-        row.last_hop_at,
-    }));
-}
-
-export async function GET(
-  request: Request,
-) {
+export async function GET(request: Request) {
   try {
-    const url =
-      new URL(
-        request.url,
-      );
+    const url = new URL(request.url);
+    const requestedKind = url.searchParams.get('kind');
 
-    const requestedKind =
-      url.searchParams.get(
-        'kind',
-      );
-
-    const kind:
-      LeaderboardKind =
+    const kind: LeaderboardKind =
       requestedKind &&
-      VALID_KINDS.has(
-        requestedKind as LeaderboardKind,
-      )
-        ? requestedKind as LeaderboardKind
+      VALID_KINDS.has(requestedKind as LeaderboardKind)
+        ? (requestedKind as LeaderboardKind)
         : 'streak';
 
-    const db =
-      supabaseAdmin();
+    const requestedPage = parsePositiveInteger(
+      url.searchParams.get('page'),
+      1,
+    );
 
-    /*
-      Prefer the canonical RPC if it exists and returns rows.
-      Then fall back to a direct table query. This protects the
-      app when the RPC shape is stale or missing last_hop_at,
-      which causes the frontend to hide all leaderboard rows.
-    */
-    const rpcResult =
-      await db.rpc(
-        'toby_hop_leaderboard',
-        {
-          p_kind:
-            kind,
-          p_limit:
-            100,
-        },
-      );
+    const pageSize = Math.min(
+      parsePositiveInteger(
+        url.searchParams.get('pageSize'),
+        DEFAULT_PAGE_SIZE,
+      ),
+      MAX_PAGE_SIZE,
+    );
 
-    if (
-      !rpcResult.error &&
-      Array.isArray(
-        rpcResult.data,
-      ) &&
-      rpcResult.data.length > 0
-    ) {
-      return NextResponse.json(
-        rpcResult.data,
-        {
-          headers: {
-            'Cache-Control':
-              'public, s-maxage=15, stale-while-revalidate=45',
-          },
-        },
-      );
+    const db = supabaseAdmin();
+
+    const countResult = await db
+      .from('toby_hop_users')
+      .select('fid', {
+        count: 'exact',
+        head: true,
+      })
+      .gt('total_hops', 0)
+      .not('last_hop_at', 'is', null);
+
+    if (countResult.error) {
+      throw countResult.error;
     }
 
-    if (rpcResult.error) {
-      console.error(
-        'Leaderboard RPC failed; using direct fallback:',
-        rpcResult.error,
-      );
+    const total = countResult.count ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const offset = (page - 1) * pageSize;
+    const rangeEnd = Math.min(offset + pageSize - 1, Math.max(total - 1, 0));
+
+    let query = db
+      .from('toby_hop_users')
+      .select(`
+        fid,
+        username,
+        display_name,
+        pfp_url,
+        wallet_address,
+        total_hops,
+        current_streak,
+        longest_streak,
+        total_toby_atomic,
+        current_title,
+        last_hop_at
+      `)
+      .gt('total_hops', 0)
+      .not('last_hop_at', 'is', null);
+
+    if (kind === 'toby') {
+      query = query
+        .order('total_toby_atomic', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('total_hops', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('current_streak', {
+          ascending: false,
+          nullsFirst: false,
+        });
+    } else if (kind === 'hops') {
+      query = query
+        .order('total_hops', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('current_streak', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('longest_streak', {
+          ascending: false,
+          nullsFirst: false,
+        });
+    } else {
+      query = query
+        .order('current_streak', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('longest_streak', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('total_hops', {
+          ascending: false,
+          nullsFirst: false,
+        });
     }
 
-    const {
-      data,
-      error,
-    } =
-      await db
-        .from(
-          'toby_hop_users',
-        )
-        .select(
-          `
-            fid,
-            username,
-            display_name,
-            pfp_url,
-            wallet_address,
-            total_hops,
-            current_streak,
-            longest_streak,
-            total_toby_atomic,
-            current_title,
-            last_hop_at
-          `,
-        )
-        .gt(
-          'total_hops',
-          0,
-        )
-        .not(
-          'last_hop_at',
-          'is',
-          null,
-        )
-        .limit(250);
+    const { data, error } = await query.range(offset, rangeEnd);
 
     if (error) {
-      console.error(
-        'Leaderboard direct fallback failed:',
-        error,
-      );
+      console.error('Leaderboard query failed:', error);
 
       return NextResponse.json(
         {
-          error:
-            'Unable to load the leaderboard.',
+          error: 'Unable to load the leaderboard.',
         },
         {
           status: 500,
@@ -258,23 +162,42 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(
-      mapRows(
-        (data ?? []) as LeaderboardUserRow[],
-        kind,
-      ),
-      {
-        headers: {
-          'Cache-Control':
-            'public, s-maxage=15, stale-while-revalidate=45',
-        },
+    const rows = ((data ?? []) as LeaderboardUserRow[]).map(
+      (row, index) => ({
+        rank: offset + index + 1,
+        fid: row.fid,
+        username: row.username,
+        display_name: row.display_name,
+        pfp_url: row.pfp_url,
+        wallet_address: row.wallet_address,
+        total_hops: row.total_hops ?? 0,
+        current_streak: row.current_streak ?? 0,
+        longest_streak: row.longest_streak ?? 0,
+        total_toby_atomic: row.total_toby_atomic ?? '0',
+        current_title: row.current_title ?? 'Pond Hopper',
+        last_hop_at: row.last_hop_at,
+      }),
+    );
+
+    const response: LeaderboardResponse = {
+      rows,
+      kind,
+      page,
+      pageSize,
+      total,
+      totalPages,
+      rangeStart: total === 0 ? 0 : offset + 1,
+      rangeEnd: total === 0 ? 0 : offset + rows.length,
+    };
+
+    return NextResponse.json(response, {
+      headers: {
+        'Cache-Control':
+          'public, s-maxage=15, stale-while-revalidate=45',
       },
-    );
+    });
   } catch (cause) {
-    console.error(
-      'Leaderboard route error:',
-      cause,
-    );
+    console.error('Leaderboard route error:', cause);
 
     return NextResponse.json(
       {
