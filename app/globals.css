@@ -4843,3 +4843,141 @@ img {
     0 1px 2px rgba(0, 18, 24, 0.82),
     0 5px 16px rgba(0, 12, 18, 0.62);
 }
+
+/* =========================================================
+   LEADERBOARD PAGINATION + LARGE-RANK POLISH
+   ========================================================= */
+
+.leaderboard-panel {
+  padding-bottom: 104px;
+}
+
+.leader-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+  background: rgba(7, 31, 34, 0.52);
+  font-size: 0.72rem;
+}
+
+.leader-range {
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.leader-range strong,
+.leader-page-count strong {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.leader-page-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.leader-page-controls button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  background: rgba(132, 244, 222, 0.07);
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.leader-page-controls button:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+
+.leader-page-count {
+  min-width: 88px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.leader-row {
+  grid-template-columns:
+    minmax(46px, auto)
+    46px
+    minmax(0, 1fr)
+    minmax(58px, auto);
+}
+
+.rank {
+  min-width: 0;
+  font-size: clamp(0.78rem, 3.2vw, 0.95rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.leader-identity,
+.leader-name,
+.leader-name > span:first-child {
+  min-width: 0;
+}
+
+.leader-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leader-value {
+  max-width: 92px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leader-value > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 560px) {
+  .leader-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .leader-range {
+    text-align: center;
+  }
+
+  .leader-page-controls {
+    justify-content: center;
+  }
+
+  .leader-row {
+    grid-template-columns:
+      minmax(43px, auto)
+      40px
+      minmax(0, 1fr)
+      minmax(50px, auto);
+  }
+
+  .leader-value {
+    max-width: 70px;
+  }
+}
