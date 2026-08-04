@@ -64,6 +64,7 @@ import type {
   HopReceipt,
   HopUser,
   LeaderboardKind,
+  LeaderboardResponse,
 } from '@/lib/types';
 import {
   addressesMatch,
@@ -1420,6 +1421,24 @@ export function TobyHopApp() {
     >([]);
 
   const [
+    leaderPage,
+    setLeaderPage,
+  ] =
+    useState(1);
+
+  const [
+    leaderboardMeta,
+    setLeaderboardMeta,
+  ] =
+    useState({
+      total: 0,
+      totalPages: 1,
+      rangeStart: 0,
+      rangeEnd: 0,
+      pageSize: 50,
+    });
+
+  const [
     leaderLoading,
     setLeaderLoading,
   ] =
@@ -1793,7 +1812,9 @@ export function TobyHopApp() {
   const actualRank =
     user.total_hops > 0
       ? currentLeaderboardEntry
-          ?.rank ?? null
+          ?.rank ??
+        user.rank ??
+        null
       : null;
 
   const setErrorNotice =
@@ -2551,6 +2572,7 @@ export function TobyHopApp() {
       async (
         kind:
           LeaderboardKind,
+        page = 1,
       ) => {
         const requestId =
           ++leaderboardRequestRef.current;
@@ -2564,7 +2586,7 @@ export function TobyHopApp() {
             await fetchWithTimeout(
               `/api/leaderboard?kind=${encodeURIComponent(
                 kind,
-              )}`,
+              )}&page=${page}&pageSize=50`,
               {
                 method:
                   'GET',
@@ -2574,9 +2596,9 @@ export function TobyHopApp() {
               },
             );
 
-          const rows =
+          const payload =
             await readJsonResponse<
-              LeaderRowWithWallet[]
+              LeaderboardResponse
             >(
               response,
               'Unable to load the leaderboard.',
@@ -2587,12 +2609,19 @@ export function TobyHopApp() {
             requestId
           ) {
             setLeaders(
-              Array.isArray(
-                rows,
-              )
-                ? rows
+              Array.isArray(payload.rows)
+                ? payload.rows
                 : [],
             );
+
+            setLeaderPage(payload.page);
+            setLeaderboardMeta({
+              total: payload.total,
+              totalPages: payload.totalPages,
+              rangeStart: payload.rangeStart,
+              rangeEnd: payload.rangeEnd,
+              pageSize: payload.pageSize,
+            });
           }
         } catch (cause) {
           if (
@@ -2624,10 +2653,12 @@ export function TobyHopApp() {
     ) {
       void loadLeaderboard(
         leaderKind,
+        leaderPage,
       );
     }
   }, [
     leaderKind,
+    leaderPage,
     loadLeaderboard,
     view,
   ]);
@@ -3509,6 +3540,7 @@ export function TobyHopApp() {
         try {
           await loadLeaderboard(
             leaderKind,
+            leaderPage,
           );
         } catch {
           // Optional.
@@ -3517,6 +3549,7 @@ export function TobyHopApp() {
       [
         farcasterUser,
         leaderKind,
+        leaderPage,
         loadAppSession,
         loadLeaderboard,
       ],
@@ -5090,8 +5123,27 @@ export function TobyHopApp() {
           rows={
             leaders
           }
-          onKindChange={
-            setLeaderKind
+          page={
+            leaderPage
+          }
+          total={
+            leaderboardMeta.total
+          }
+          totalPages={
+            leaderboardMeta.totalPages
+          }
+          rangeStart={
+            leaderboardMeta.rangeStart
+          }
+          rangeEnd={
+            leaderboardMeta.rangeEnd
+          }
+          onKindChange={(nextKind) => {
+            setLeaderPage(1);
+            setLeaderKind(nextKind);
+          }}
+          onPageChange={
+            setLeaderPage
           }
         />
       )}
