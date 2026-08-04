@@ -47,6 +47,17 @@ export type LeaderRow = {
   rank: number;
 };
 
+export type LeaderboardResponse = {
+  rows: LeaderRow[];
+  kind: LeaderboardKind;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  rangeStart: number;
+  rangeEnd: number;
+};
+
 export type PondEncounterCategory =
   | 'ambient'
   | 'find'
