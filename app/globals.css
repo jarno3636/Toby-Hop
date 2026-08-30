@@ -4981,3 +4981,188 @@ img {
     max-width: 70px;
   }
 }
+
+/* Stillness / $PATIENCE daily action */
+.meditation-triangle {
+  position: absolute;
+  z-index: 28;
+  right: clamp(18px, 7vw, 54px);
+  bottom: clamp(112px, 24%, 170px);
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  width: 74px;
+  min-height: 70px;
+  padding: 8px 7px;
+  border: 1px solid rgba(255, 119, 102, 0.55);
+  border-radius: 22px;
+  background: rgba(76, 15, 20, 0.72);
+  box-shadow: 0 12px 28px rgba(19, 3, 7, 0.32), inset 0 0 18px rgba(255, 92, 76, 0.1);
+  color: #fff7f4;
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.meditation-triangle:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 16px 34px rgba(19, 3, 7, 0.38), 0 0 24px rgba(255, 79, 67, 0.2);
+}
+
+.meditation-triangle > span {
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.3));
+}
+
+.meditation-triangle > small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.meditation-triangle.meditation-complete {
+  opacity: 0.48;
+  cursor: default;
+}
+
+.meditation-triangle.meditation-active {
+  animation: meditationTrianglePulse 1.2s ease-in-out infinite;
+}
+
+.frog.frog-meditating {
+  filter: drop-shadow(0 0 14px rgba(255, 111, 92, 0.8)) drop-shadow(0 0 32px rgba(255, 201, 119, 0.42));
+  animation: frogMeditationGlow 1.65s ease-in-out infinite !important;
+}
+
+@keyframes meditationTrianglePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes frogMeditationGlow {
+  0%, 100% { transform: translateY(0) scale(1); filter: drop-shadow(0 0 10px rgba(255, 111, 92, .6)); }
+  50% { transform: translateY(-4px) scale(1.025); filter: drop-shadow(0 0 20px rgba(255, 111, 92, .95)) drop-shadow(0 0 38px rgba(255, 204, 123, .5)); }
+}
+
+.success-meditation .success-card {
+  border-color: rgba(255, 104, 88, 0.3);
+}
+
+.meditation-success-symbol {
+  font-size: 44px;
+}
+
+/* Wallet/Base App pond profile editor */
+.pond-profile-editor {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid rgba(182, 235, 223, 0.16);
+  border-radius: 22px;
+  background: rgba(5, 37, 40, 0.52);
+}
+
+.pond-profile-name {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.pond-profile-name > span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(226, 255, 247, 0.7);
+}
+
+.pond-profile-name input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(188, 241, 228, 0.18);
+  border-radius: 14px;
+  outline: none;
+  background: rgba(2, 24, 27, 0.72);
+  color: #effffb;
+  font: inherit;
+}
+
+.pond-profile-name input:focus {
+  border-color: rgba(126, 231, 205, 0.58);
+  box-shadow: 0 0 0 3px rgba(95, 215, 188, 0.1);
+}
+
+.pond-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.pond-avatar-grid button {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgba(203, 247, 236, 0.12);
+  border-radius: 16px;
+  background: rgba(3, 27, 30, 0.58);
+  color: rgba(239, 255, 251, 0.78);
+  cursor: pointer;
+}
+
+.pond-avatar-grid button.selected {
+  border-color: rgba(125, 236, 209, 0.72);
+  box-shadow: 0 0 0 2px rgba(89, 209, 180, 0.12), inset 0 0 18px rgba(78, 197, 170, 0.08);
+  color: #f4fffc;
+}
+
+.pond-avatar-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.pond-avatar-grid span {
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pond-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.pond-profile-actions > span {
+  font-size: 12px;
+  color: rgba(224, 255, 248, 0.74);
+}
+
+@media (max-width: 520px) {
+  .meditation-triangle {
+    right: 14px;
+    bottom: 118px;
+    width: 66px;
+    min-height: 64px;
+  }
+
+  .pond-profile-editor {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meditation-triangle.meditation-active,
+  .frog.frog-meditating {
+    animation: none !important;
+  }
+}
