@@ -13,6 +13,19 @@ import type {
 
 export const dynamic = 'force-dynamic';
 
+const ALLOWED_LOCAL_AVATARS = new Set([
+  '/avatars/gray.webp',
+  '/avatars/gray-glasses.webp',
+  '/avatars/gray-hat.webp',
+  '/avatars/blue.webp',
+  '/avatars/blue-glasses.webp',
+  '/avatars/blue-hat.webp',
+  '/avatars/gold.webp',
+  '/avatars/gold-glasses.webp',
+  '/avatars/gold-hat.webp',
+]);
+
+
 type UserFindRow = {
   encounter_key: string;
   name: string;
@@ -416,10 +429,16 @@ export async function POST(request: Request) {
       .json()
       .catch(() => ({}));
 
+    const requestedPfp = clean(body.pfpUrl, 1_000);
+
+    if (identity.authMethod === 'siwe' && requestedPfp && !ALLOWED_LOCAL_AVATARS.has(requestedPfp)) {
+      return NextResponse.json({ error: 'Choose one of the Toby Hop avatars.' }, { status: 400 });
+    }
+
     const updates = {
       username: clean(body.username, 64),
-      display_name: clean(body.displayName, 100),
-      pfp_url: clean(body.pfpUrl, 1_000),
+      display_name: clean(body.displayName, 40),
+      pfp_url: requestedPfp,
       updated_at: new Date().toISOString(),
     };
 
