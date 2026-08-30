@@ -5,6 +5,7 @@ import {
 import {
   requireCanonicalIdentity,
 } from '@/lib/auth/canonical-identity';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 
 export const dynamic =
   'force-dynamic';
@@ -19,26 +20,38 @@ export async function GET() {
     const identity =
       await requireCanonicalIdentity();
 
+    let todayMeditated = false;
+    let totalMeditations = 0;
+
+    if (identity.wallet || identity.fid) {
+      const filters: string[] = [];
+      if (identity.wallet) filters.push(`wallet_address.eq.${identity.wallet.toLowerCase()}`);
+      if (identity.fid && identity.fid > 0) filters.push(`fid.eq.${identity.fid}`);
+      const filter = filters.join(',');
+      const db = supabaseAdmin();
+      const today = new Date().toISOString().slice(0, 10);
+      const [todayResult, countResult] = await Promise.all([
+        db.from('toby_meditations').select('id').eq('meditation_day', today).or(filter).limit(1).maybeSingle(),
+        db.from('toby_meditations').select('id', { count: 'exact', head: true }).or(filter),
+      ]);
+
+      // Deploy-safe before the migration is applied: auth still works.
+      if (!todayResult.error) todayMeditated = Boolean(todayResult.data);
+      if (!countResult.error) totalMeditations = countResult.count ?? 0;
+    }
+
     return NextResponse.json(
       {
-        authenticated:
-          true,
-
-        authMethod:
-          identity.authMethod,
-
-        fid:
-          identity.fid,
-
-        address:
-          identity.wallet,
-
-        user:
-          identity.user,
+        authenticated: true,
+        authMethod: identity.authMethod,
+        fid: identity.fid,
+        address: identity.wallet,
+        user: identity.user
+          ? { ...identity.user, today_meditated: todayMeditated, total_meditations: totalMeditations }
+          : identity.user,
       },
       {
-        headers:
-          NO_STORE_HEADERS,
+        headers: NO_STORE_HEADERS,
       },
     );
   } catch (cause) {
