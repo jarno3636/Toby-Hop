@@ -43,6 +43,7 @@ export const EMPTY_USER: HopUser = {
   today_hopped: false,
   today_meditated: false,
   total_meditations: 0,
+  total_patience_atomic: '0',
   rank: null,
 };
 
@@ -75,6 +76,7 @@ export function normalizeUser(value?: StoredHopUser | null, farcasterUser?: Mini
     today_hopped: Boolean(value?.today_hopped),
     today_meditated: Boolean(value?.today_meditated),
     total_meditations: safeNumber(value?.total_meditations),
+    total_patience_atomic: safeAtomicString(value?.total_patience_atomic),
     rank: value?.rank == null ? null : safeNumber(value.rank),
   };
 }

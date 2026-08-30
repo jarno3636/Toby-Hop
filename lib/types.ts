@@ -23,6 +23,7 @@ export type HopUser = {
   today_hopped: boolean;
   today_meditated: boolean;
   total_meditations: number;
+  total_patience_atomic: string;
   rank: number | null;
 };
 
@@ -175,6 +176,8 @@ export type MeditationReceipt = {
   energyAwarded: number;
   totalEnergy: number;
   totalMeditations: number;
+  totalPatienceAtomic: string;
+  totalPatienceDisplay: string;
   castText: string;
   txHash: `0x${string}`;
   alreadyRecorded?: boolean;
