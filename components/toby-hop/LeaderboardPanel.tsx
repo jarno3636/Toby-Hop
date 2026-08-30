@@ -40,8 +40,8 @@ function isEligibleLeader(
   row: LeaderRowWithWallet,
 ): boolean {
   return (
-    Number(row.total_hops ?? 0) > 0 &&
-    Boolean(row.last_hop_at)
+    Number(row.total_hops ?? 0) > 0 ||
+    Number(row.big_pond_energy ?? 0) > 0
   );
 }
 
@@ -137,6 +137,14 @@ function getLeaderValue(
     };
   }
 
+  if (kind === 'energy') {
+    const value = Number(row.big_pond_energy ?? 0);
+    return {
+      display: compactLargeNumber(value),
+      exact: value.toLocaleString('en-US'),
+    };
+  }
+
   const exact = formatAtomic(
     row.total_toby_atomic ?? '0',
   );
@@ -158,6 +166,10 @@ function getLeaderUnit(
 
   if (kind === 'hops') {
     return 'hops';
+  }
+
+  if (kind === 'energy') {
+    return 'BPE';
   }
 
   return 'TOBY';
@@ -341,6 +353,7 @@ export function LeaderboardPanel({
           [
             'streak',
             'hops',
+            'energy',
             'toby',
           ] as const
         ).map((leaderKind) => (
@@ -361,7 +374,9 @@ export function LeaderboardPanel({
           >
             {leaderKind === 'toby'
               ? 'TOBY'
-              : leaderKind
+              : leaderKind === 'energy'
+                ? 'Energy'
+                : leaderKind
                   .charAt(0)
                   .toUpperCase() +
                 leaderKind.slice(1)}

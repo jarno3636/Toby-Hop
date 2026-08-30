@@ -28,7 +28,20 @@ type Props = {
   onWalletSignIn: () => void;
   onFarcasterRetry: () => void;
   onWalletLogout: () => void;
+  onProfileUpdated: (profile: { displayName: string; pfpUrl: string }) => void;
 };
+
+const AVATARS = [
+  { id: 'gray', label: 'Gray', src: '/avatars/gray.webp' },
+  { id: 'gray-glasses', label: 'Gray Glasses', src: '/avatars/gray-glasses.webp' },
+  { id: 'gray-hat', label: 'Gray Hat', src: '/avatars/gray-hat.webp' },
+  { id: 'blue', label: 'Blue', src: '/avatars/blue.webp' },
+  { id: 'blue-glasses', label: 'Blue Glasses', src: '/avatars/blue-glasses.webp' },
+  { id: 'blue-hat', label: 'Blue Hat', src: '/avatars/blue-hat.webp' },
+  { id: 'gold', label: 'Gold', src: '/avatars/gold.webp' },
+  { id: 'gold-glasses', label: 'Gold Glasses', src: '/avatars/gold-glasses.webp' },
+  { id: 'gold-hat', label: 'Gold Hat', src: '/avatars/gold-hat.webp' },
+] as const;
 
 
 function isPondJournal(value: unknown): value is PondJournal {
@@ -159,7 +172,13 @@ export function MePanel(props: Props) {
     onWalletSignIn,
     onFarcasterRetry,
     onWalletLogout,
+    onProfileUpdated,
   } = props;
+
+  const [profileName, setProfileName] = useState(displayName === 'Pond Hopper' ? '' : displayName);
+  const [selectedAvatar, setSelectedAvatar] = useState(profilePfp && profilePfp.startsWith('/avatars/') ? profilePfp : '/avatars/gray.webp');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
 
   const [journal, setJournal] =
     useState<PondJournal>(EMPTY_JOURNAL);
@@ -235,6 +254,43 @@ export function MePanel(props: Props) {
       active = false;
     };
   }, [authenticated, user.total_hops]);
+
+
+  useEffect(() => {
+    setProfileName(displayName === 'Pond Hopper' ? '' : displayName);
+    if (profilePfp?.startsWith('/avatars/')) setSelectedAvatar(profilePfp);
+  }, [displayName, profilePfp]);
+
+  async function saveProfile() {
+    const name = profileName.trim().slice(0, 40);
+    if (!name) {
+      setProfileMessage('Choose a pond name first.');
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileMessage(null);
+    try {
+      const response = await fetch('/api/me', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          username: user.username,
+          displayName: name,
+          pfpUrl: selectedAvatar,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || 'Unable to save your pond profile.');
+      onProfileUpdated({ displayName: name, pfpUrl: selectedAvatar });
+      setProfileMessage('Profile saved to the pond.');
+    } catch (cause) {
+      setProfileMessage(cause instanceof Error ? cause.message : 'Unable to save your pond profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
 
   const discoveryProgress = useMemo(() => {
     if (journal.availableDiscoveries <= 0) {
@@ -330,6 +386,57 @@ export function MePanel(props: Props) {
             </blockquote>
           </section>
 
+
+          {!isFarcasterMiniApp && (
+            <section className="pond-profile-editor">
+              <div className="journal-section-heading">
+                <div>
+                  <span>POND PROFILE</span>
+                  <strong>Name + avatar for the leaderboard</strong>
+                </div>
+              </div>
+
+              <label className="pond-profile-name">
+                <span>Display name</span>
+                <input
+                  value={profileName}
+                  onChange={(event) => setProfileName(event.target.value)}
+                  maxLength={40}
+                  placeholder="Your pond name"
+                  autoComplete="nickname"
+                />
+              </label>
+
+              <div className="pond-avatar-grid" aria-label="Choose an avatar">
+                {AVATARS.map((avatar) => (
+                  <button
+                    key={avatar.id}
+                    type="button"
+                    className={selectedAvatar === avatar.src ? 'selected' : ''}
+                    onClick={() => setSelectedAvatar(avatar.src)}
+                    aria-pressed={selectedAvatar === avatar.src}
+                    aria-label={`Use ${avatar.label} avatar`}
+                  >
+                    <img src={avatar.src} alt="" />
+                    <span>{avatar.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="pond-profile-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void saveProfile()}
+                  disabled={profileSaving || busy}
+                >
+                  {profileSaving ? 'SAVING' : 'SAVE PROFILE'}
+                </button>
+                {profileMessage && <span role="status">{profileMessage}</span>}
+              </div>
+            </section>
+          )}
+
           {journal.conditions && (
             <section className="journal-conditions-card">
               <div className="journal-conditions-current">
@@ -408,7 +515,7 @@ export function MePanel(props: Props) {
             <article>
               <span>Big Pond Energy</span>
               <strong>{user.big_pond_energy}</strong>
-              <small>earned by hopping</small>
+              <small>hops + stillness</small>
             </article>
           </section>
 
