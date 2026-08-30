@@ -4244,6 +4244,7 @@ export function TobyHopApp() {
         ...previous,
         today_meditated: true,
         total_meditations: completed.totalMeditations,
+        total_patience_atomic: completed.totalPatienceAtomic,
         big_pond_energy: completed.totalEnergy,
       }));
       setNotice({ kind: 'success', message: `Stillness recorded. +${completed.energyAwarded} Big Pond Energy.` });
@@ -4323,130 +4324,56 @@ export function TobyHopApp() {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  async function shareHop() {
-    if (!receipt) {
-      return;
-    }
+  async function shareAction(text: string, copiedLabel: string) {
+    setNotice(null);
 
-    setNotice(
-      null,
-    );
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const shareText = `${text}\n\n${appUrl}`;
 
-    const appUrl =
-      process.env
-        .NEXT_PUBLIC_APP_URL ||
-      window.location.origin;
-
-    const encounterShareLine =
-      receipt.encounter
-        ? `\n\n${receipt.encounter.firstDiscovery
-            ? 'First discovery'
-            : 'Pond encounter'}: ${receipt.encounter.name}.`
-        : '';
-
-    const shareCastText =
-      `${receipt.castText}${encounterShareLine}`;
-
-    const shareText =
-      `${shareCastText}\n\n${appUrl}`;
-
-    if (
-      canCast
-    ) {
+    if (canCast) {
       try {
         await withTimeout(
-          sdk.actions
-            .composeCast({
-              text:
-                shareCastText,
-
-              embeds: [
-                appUrl,
-              ],
-            }),
-
-          SDK_TIMEOUT_MS *
-            4,
-
+          sdk.actions.composeCast({ text, embeds: [appUrl] }),
+          SDK_TIMEOUT_MS * 4,
           'Cast composer timed out.',
         );
-
         return;
       } catch (cause) {
-        console.warn(
-          'Farcaster cast composer was unavailable:',
-          cause,
-        );
-
-        // Continue to native sharing or clipboard fallback.
+        console.warn('Farcaster cast composer was unavailable:', cause);
       }
     }
 
-    if (
-      typeof navigator.share ===
-        'function' &&
-      document.visibilityState ===
-        'visible' &&
-      document.hasFocus()
-    ) {
+    if (typeof navigator.share === 'function' && document.visibilityState === 'visible' && document.hasFocus()) {
       try {
-        await navigator.share({
-          title:
-            'Toby Hop',
-
-          text:
-            shareCastText,
-
-          url:
-            appUrl,
-        });
-
+        await navigator.share({ title: 'Toby Hop', text, url: appUrl });
         return;
       } catch (cause) {
-        if (
-          cause instanceof
-            DOMException &&
-          cause.name ===
-            'AbortError'
-        ) {
-          return;
-        }
-
-        console.warn(
-          'Native share was unavailable:',
-          cause,
-        );
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        console.warn('Native share was unavailable:', cause);
       }
     }
 
-    const copied =
-      await safeCopyToClipboard(
-        shareText,
-      );
+    const copied = await safeCopyToClipboard(shareText);
+    setNotice(
+      copied
+        ? { kind: 'success', message: `${copiedLabel} was copied.` }
+        : { kind: 'success', message: `${copiedLabel} is recorded. Try Share again after the wallet window fully closes.` },
+    );
+  }
 
-    if (copied) {
-      setNotice({
-        kind:
-          'success',
+  async function shareHop() {
+    if (!receipt) return;
 
-        message:
-          'Your hop message was copied.',
-      });
+    const encounterShareLine = receipt.encounter
+      ? `\n\n${receipt.encounter.firstDiscovery ? 'First discovery' : 'Pond encounter'}: ${receipt.encounter.name}.`
+      : '';
 
-      return;
-    }
+    await shareAction(`${receipt.castText}${encounterShareLine}`, 'Your hop message');
+  }
 
-    /*
-      Sharing is optional and must never make a successful hop look
-      like it failed when an Android wallet webview is still unfocused.
-    */
-    setNotice({
-      kind:
-        'success',
-
-      message:
-        'Your hop is recorded. Try Share again after the wallet window fully closes.',
-    });
+  async function shareMeditation() {
+    if (!meditationReceipt) return;
+    await shareAction(meditationReceipt.castText, 'Your stillness message');
   }
 
   const hopStatus:
@@ -5660,9 +5587,13 @@ export function TobyHopApp() {
               <strong>{meditationReceipt.patienceDisplay} $PATIENCE</strong>
               <span>{meditationReceipt.totalEnergy.toLocaleString('en-US')} total Big Pond Energy</span>
               <span>Stillness sessions: {meditationReceipt.totalMeditations.toLocaleString('en-US')}</span>
+              <span>Total $PATIENCE received: {meditationReceipt.totalPatienceDisplay}</span>
             </div>
             <div className="success-actions">
-              <button type="button" className="primary" onClick={() => shareToX(meditationReceipt.castText)}>POST TO X</button>
+              <button type="button" className="primary" onClick={() => void shareMeditation()}>
+                {canCast ? 'CAST STILLNESS' : 'SHARE STILLNESS'}
+              </button>
+              <button type="button" className="secondary" onClick={() => shareToX(meditationReceipt.castText)}>POST TO X</button>
               <button type="button" className="secondary" onClick={() => setMeditationReceipt(null)}>BACK TO THE POND</button>
             </div>
           </div>
