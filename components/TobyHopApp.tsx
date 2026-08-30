@@ -1301,6 +1301,9 @@ export function TobyHopApp() {
       'hop',
     );
 
+  const [profilePromptDismissed, setProfilePromptDismissed] =
+    useState(false);
+
   const [
     hostMode,
     setHostMode,
@@ -1805,6 +1808,23 @@ export function TobyHopApp() {
     farcasterUser
       ?.pfpUrl ||
     FALLBACK_PFP;
+
+
+  const hasCustomPondProfile = Boolean(
+    user.display_name?.trim() &&
+    user.pfp_url?.startsWith('/avatars/'),
+  );
+
+  const shouldPromptForProfile = Boolean(
+    authenticated &&
+    !isFarcasterMiniApp &&
+    !hasCustomPondProfile &&
+    !profilePromptDismissed &&
+    view === 'hop' &&
+    (user.today_hopped || user.today_meditated) &&
+    !receipt &&
+    !meditationReceipt,
+  );
 
   const canCast =
     isFarcasterMiniApp &&
@@ -5432,6 +5452,39 @@ export function TobyHopApp() {
             specialPond
           }
         />
+      )}
+
+      {shouldPromptForProfile && (
+        <aside
+          className="profile-reminder"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="profile-reminder-copy">
+            <strong>Make your pond profile</strong>
+            <span>Pick a name and Toby avatar so your leaderboard spot feels like yours.</span>
+          </div>
+
+          <button
+            type="button"
+            className="profile-reminder-action"
+            onClick={() => {
+              setProfilePromptDismissed(true);
+              setView('me');
+            }}
+          >
+            CREATE PROFILE
+          </button>
+
+          <button
+            type="button"
+            className="profile-reminder-close"
+            aria-label="Dismiss profile reminder"
+            onClick={() => setProfilePromptDismissed(true)}
+          >
+            ×
+          </button>
+        </aside>
       )}
 
       <NoticeCard
