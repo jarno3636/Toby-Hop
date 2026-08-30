@@ -1314,6 +1314,29 @@ export function TobyHopApp() {
       EMPTY_USER,
     );
 
+  useEffect(() => {
+    if (!user.today_meditated) return;
+
+    const now = new Date();
+    const nextUtcDay = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 1,
+      0,
+      0,
+      1,
+    );
+    const delay = Math.max(1_000, nextUtcDay - now.getTime());
+    const timer = window.setTimeout(() => {
+      setUser((previous) => ({
+        ...previous,
+        today_meditated: false,
+      }));
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [user.today_meditated]);
+
   const [
     authenticated,
     setAuthenticated,
@@ -5123,7 +5146,7 @@ export function TobyHopApp() {
                     ? 'frog-coin-spin'
                     : '',
 
-                  activeAction === 'meditation'
+                  activeAction === 'meditation' || user.today_meditated
                     ? 'frog-meditating'
                     : '',
                 ]
@@ -5172,8 +5195,7 @@ export function TobyHopApp() {
               onClick={() => void performMeditation()}
               aria-label={user.today_meditated ? 'Today’s stillness session is complete' : 'Meditate: swap $0.05 USDC for $PATIENCE and gain 5 Big Pond Energy'}
             >
-              <span aria-hidden="true">🔺</span>
-              <small>{user.today_meditated ? 'Still' : 'Stillness'}</small>
+              <span className="meditation-triangle-label">Stillness</span>
             </button>
 
             <button
