@@ -9,6 +9,7 @@ import type {
 const VALID_KINDS = new Set<LeaderboardKind>([
   'streak',
   'hops',
+  'energy',
   'toby',
 ]);
 
@@ -22,6 +23,7 @@ type LeaderboardUserRow = {
   pfp_url: string | null;
   wallet_address: string | null;
   total_hops: number | null;
+  big_pond_energy: number | null;
   current_streak: number | null;
   longest_streak: number | null;
   total_toby_atomic: string | null;
@@ -72,8 +74,7 @@ export async function GET(request: Request) {
         count: 'exact',
         head: true,
       })
-      .gt('total_hops', 0)
-      .not('last_hop_at', 'is', null);
+      .or('total_hops.gt.0,big_pond_energy.gt.0');
 
     if (countResult.error) {
       throw countResult.error;
@@ -94,18 +95,32 @@ export async function GET(request: Request) {
         pfp_url,
         wallet_address,
         total_hops,
+        big_pond_energy,
         current_streak,
         longest_streak,
         total_toby_atomic,
         current_title,
         last_hop_at
       `)
-      .gt('total_hops', 0)
-      .not('last_hop_at', 'is', null);
+      .or('total_hops.gt.0,big_pond_energy.gt.0');
 
     if (kind === 'toby') {
       query = query
         .order('total_toby_atomic', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('total_hops', {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order('current_streak', {
+          ascending: false,
+          nullsFirst: false,
+        });
+    } else if (kind === 'energy') {
+      query = query
+        .order('big_pond_energy', {
           ascending: false,
           nullsFirst: false,
         })
@@ -171,6 +186,7 @@ export async function GET(request: Request) {
         pfp_url: row.pfp_url,
         wallet_address: row.wallet_address,
         total_hops: row.total_hops ?? 0,
+        big_pond_energy: row.big_pond_energy ?? 0,
         current_streak: row.current_streak ?? 0,
         longest_streak: row.longest_streak ?? 0,
         total_toby_atomic: row.total_toby_atomic ?? '0',
