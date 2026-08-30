@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireCanonicalIdentity } from '@/lib/auth/canonical-identity';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { formatAtomic } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,17 +21,23 @@ export async function GET() {
     const db = supabaseAdmin();
     const today = new Date().toISOString().slice(0, 10);
 
-    const [todayResult, countResult] = await Promise.all([
+    const [todayResult, meditationResult] = await Promise.all([
       db.from('toby_meditations').select('id').eq('meditation_day', today).or(filter).limit(1).maybeSingle(),
-      db.from('toby_meditations').select('id', { count: 'exact', head: true }).or(filter),
+      db.from('toby_meditations').select('id,patience_amount_atomic').or(filter),
     ]);
 
     if (todayResult.error) throw todayResult.error;
-    if (countResult.error) throw countResult.error;
+    if (meditationResult.error) throw meditationResult.error;
+
+    const totalPatienceAtomic = (meditationResult.data ?? [])
+      .reduce((sum: bigint, row: { patience_amount_atomic?: string | null }) => sum + BigInt(row.patience_amount_atomic ?? '0'), 0n)
+      .toString();
 
     return NextResponse.json({
       todayMeditated: Boolean(todayResult.data),
-      totalMeditations: countResult.count ?? 0,
+      totalMeditations: meditationResult.data?.length ?? 0,
+      totalPatienceAtomic,
+      totalPatienceDisplay: formatAtomic(totalPatienceAtomic, 18, 8),
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : 'Unable to load stillness status.';
