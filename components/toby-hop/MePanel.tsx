@@ -517,6 +517,18 @@ export function MePanel(props: Props) {
               <strong>{user.big_pond_energy}</strong>
               <small>hops + stillness</small>
             </article>
+
+            <article>
+              <span>Stillness sessions</span>
+              <strong>{user.total_meditations}</strong>
+              <small>verified daily sessions</small>
+            </article>
+
+            <article>
+              <span>$PATIENCE received</span>
+              <strong>{formatAtomic(user.total_patience_atomic, 18, 8)}</strong>
+              <small>from verified stillness</small>
+            </article>
           </section>
 
           <section className="journal-discovery-progress">
