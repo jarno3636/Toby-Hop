@@ -46,6 +46,7 @@ import {
 import {
   erc20Abi,
   HOP_USDC_ATOMIC,
+  MEDITATION_USDC_ATOMIC,
   USDC_ADDRESS,
 } from '@/lib/contracts';
 import {
@@ -63,6 +64,7 @@ import type {
 import type {
   HopReceipt,
   HopUser,
+  MeditationReceipt,
   LeaderboardKind,
   LeaderboardResponse,
 } from '@/lib/types';
@@ -146,6 +148,9 @@ const INITIALIZATION_FALLBACK_MS = 20_000;
 
 const PENDING_HOP_STORAGE_KEY =
   'toby_hop_pending_verification';
+
+const PENDING_MEDITATION_STORAGE_KEY =
+  'toby_hop_pending_meditation_verification';
 
 const FARCASTER_CONTEXT_RETRY_DELAYS_MS = [
   0,
@@ -974,6 +979,39 @@ function clearPendingHop(): void {
   }
 }
 
+
+function readPendingMeditation(): PendingHopRecord | null {
+  try {
+    const raw = window.localStorage.getItem(PENDING_MEDITATION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingHopRecord>;
+    if (typeof parsed.txHash !== 'string' || !parsed.txHash.startsWith('0x') || typeof parsed.walletAddress !== 'string' || !isAddress(parsed.walletAddress)) return null;
+    return {
+      txHash: parsed.txHash as Hex,
+      walletAddress: getAddress(parsed.walletAddress),
+      createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storePendingMeditation(txHash: Hex, walletAddress: Address): void {
+  try {
+    window.localStorage.setItem(PENDING_MEDITATION_STORAGE_KEY, JSON.stringify({ txHash, walletAddress, createdAt: Date.now() } satisfies PendingHopRecord));
+  } catch {
+    // Best effort.
+  }
+}
+
+function clearPendingMeditation(): void {
+  try {
+    window.localStorage.removeItem(PENDING_MEDITATION_STORAGE_KEY);
+  } catch {
+    // Best effort.
+  }
+}
+
 async function getSafeMiniAppContext():
 Promise<MiniAppContextResult> {
   let latestResult:
@@ -1396,6 +1434,12 @@ export function TobyHopApp() {
       null,
     );
 
+  const [meditationReceipt, setMeditationReceipt] =
+    useState<MeditationReceipt | null>(null);
+
+  const [activeAction, setActiveAction] =
+    useState<'hop' | 'meditation' | null>(null);
+
   const [
     notice,
     setNotice,
@@ -1773,17 +1817,12 @@ export function TobyHopApp() {
                 ? row.fid
                 : null;
 
-            const hasCompletedHop =
-              Number(
-                row.total_hops ??
-                0,
-              ) > 0 &&
-              Boolean(
-                row.last_hop_at,
-              );
+            const hasPondActivity =
+              Number(row.total_hops ?? 0) > 0 ||
+              Number(row.big_pond_energy ?? 0) > 0;
 
             if (
-              !hasCompletedHop
+              !hasPondActivity
             ) {
               return false;
             }
@@ -1810,7 +1849,7 @@ export function TobyHopApp() {
     );
 
   const actualRank =
-    user.total_hops > 0
+    user.total_hops > 0 || user.big_pond_energy > 0
       ? currentLeaderboardEntry
           ?.rank ??
         user.rank ??
@@ -3381,6 +3420,7 @@ export function TobyHopApp() {
   async function ensureUsdcAllowance(
     wallet: Address,
     allowanceTarget: Address,
+    requiredAmount: bigint = HOP_USDC_ATOMIC,
   ) {
     if (
       !publicClient
@@ -3412,9 +3452,7 @@ export function TobyHopApp() {
       BigInt(
         allowance,
       ) >=
-      BigInt(
-        HOP_USDC_ATOMIC,
-      )
+      requiredAmount
     ) {
       return;
     }
@@ -3436,7 +3474,7 @@ export function TobyHopApp() {
 
         args: [
           allowanceTarget,
-          HOP_USDC_ATOMIC,
+          requiredAmount,
         ],
 
         chainId:
@@ -3840,6 +3878,8 @@ export function TobyHopApp() {
     hopInProgressRef.current =
       true;
 
+    setActiveAction('hop');
+
     setNotice(
       null,
     );
@@ -4127,7 +4167,151 @@ export function TobyHopApp() {
       setHopState(
         'idle',
       );
+      setActiveAction(null);
     }
+  }
+
+
+  const getMeditationQuoteWithRetry = useCallback(
+    async (wallet: Address): Promise<QuoteResponse> => {
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < QUOTE_RETRY_DELAYS_MS.length; attempt += 1) {
+        const delay = QUOTE_RETRY_DELAYS_MS[attempt] ?? 0;
+        if (delay > 0) await sleep(delay);
+        try {
+          const response = await fetchWithTimeout(
+            `/api/meditation/quote?wallet=${encodeURIComponent(wallet)}`,
+            { method: 'GET', credentials: 'include', cache: 'no-store', headers: { accept: 'application/json' } },
+            API_TIMEOUT_MS,
+          );
+          return await readJsonResponse<QuoteResponse>(response, 'Unable to prepare today’s stillness session.');
+        } catch (cause) {
+          lastError = cause instanceof Error ? cause : new Error('Unable to prepare today’s stillness session.');
+          const message = lastError.message.toLowerCase();
+          if (message.includes('already complete') || message.includes('authentication') || message.includes('wallet does not match')) throw lastError;
+        }
+      }
+      throw lastError ?? new Error('Unable to prepare today’s stillness session.');
+    },
+    [],
+  );
+
+  const verifyMeditationWithRetry = useCallback(
+    async (transactionHash: Hex, wallet: Address): Promise<MeditationReceipt> => {
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < VERIFY_RETRY_DELAYS_MS.length; attempt += 1) {
+        const delay = VERIFY_RETRY_DELAYS_MS[attempt] ?? 0;
+        if (delay > 0) await sleep(delay);
+        try {
+          const response = await fetchWithTimeout(
+            '/api/meditation/verify',
+            {
+              method: 'POST', credentials: 'include', cache: 'no-store',
+              headers: { 'content-type': 'application/json', accept: 'application/json' },
+              body: JSON.stringify({ txHash: transactionHash, walletAddress: wallet }),
+            },
+            VERIFICATION_TIMEOUT_MS,
+          );
+          const raw = await response.text();
+          if (response.ok) return JSON.parse(raw) as MeditationReceipt;
+          lastError = new Error(parseApiError(raw, 'Unable to verify the stillness session.'));
+          if (response.status === 401 || response.status === 403 || response.status === 409) throw lastError;
+        } catch (cause) {
+          lastError = cause instanceof Error ? cause : new Error('Unable to verify the stillness session.');
+          const message = lastError.message.toLowerCase();
+          if (message.includes('authentication') || message.includes('submitted wallet') || message.includes('already complete')) throw lastError;
+        }
+      }
+      throw lastError ?? new Error('Unable to verify the stillness session.');
+    },
+    [],
+  );
+
+  const applyCompletedMeditation = useCallback(
+    async (completed: MeditationReceipt) => {
+      clearPendingMeditation();
+      setMeditationReceipt(completed);
+      setUser((previous) => ({
+        ...previous,
+        today_meditated: true,
+        total_meditations: completed.totalMeditations,
+        big_pond_energy: completed.totalEnergy,
+      }));
+      setNotice({ kind: 'success', message: `Stillness recorded. +${completed.energyAwarded} Big Pond Energy.` });
+      try { await loadLeaderboard(leaderKind, leaderPage); } catch { /* optional */ }
+    },
+    [leaderKind, leaderPage, loadLeaderboard],
+  );
+
+  async function performMeditation() {
+    if (hopInProgressRef.current || busy || user.today_meditated) return;
+    hopInProgressRef.current = true;
+    setActiveAction('meditation');
+    setNotice(null);
+    setMeditationReceipt(null);
+    playPondSound('rare', soundEnabled);
+    await provideTapFeedback();
+
+    try {
+      const wallet = await getConnectedWallet();
+      await ensureBaseChain();
+
+      if (isFarcasterMiniApp) {
+        const sessionReady = await ensureFarcasterHopSession(wallet);
+        if (!sessionReady) throw new Error('Farcaster authentication did not link the connected wallet.');
+      } else if (!authenticated || authMethod !== 'siwe' || !walletMatchesSession) {
+        const signedIn = await signInWithWallet(wallet);
+        if (!signedIn) return;
+        if (!addressesMatch(wallet, signedIn)) throw new Error('The connected wallet does not match the signed-in wallet.');
+      }
+
+      const pending = readPendingMeditation();
+      if (pending && addressesMatch(pending.walletAddress, wallet)) {
+        setHopState('verifying');
+        const completed = await verifyMeditationWithRetry(pending.txHash, pending.walletAddress);
+        await applyCompletedMeditation(completed);
+        return;
+      }
+
+      setHopState('quoting');
+      const quote = await getMeditationQuoteWithRetry(wallet);
+      if (!isAddress(quote.allowanceTarget) || !isAddress(quote.transaction.to) || !quote.transaction.data?.startsWith('0x')) {
+        throw new Error('The stillness quote returned invalid transaction data.');
+      }
+
+      await ensureUsdcAllowance(wallet, getAddress(quote.allowanceTarget), MEDITATION_USDC_ATOMIC);
+      setHopState('swapping');
+
+      const transactionHash = await sendTransactionAsync({
+        to: getAddress(quote.transaction.to),
+        data: quote.transaction.data,
+        value: BigInt(quote.transaction.value ?? '0'),
+        gas: quote.transaction.gas ? BigInt(quote.transaction.gas) : undefined,
+        chainId: base.id,
+      });
+
+      if (!publicClient) throw new Error('The Base network client is unavailable.');
+      setHopState('confirming');
+      const result = await publicClient.waitForTransactionReceipt({ hash: transactionHash, confirmations: 1, timeout: TRANSACTION_TIMEOUT_MS });
+      if (result.status !== 'success') throw new Error('The stillness transaction failed.');
+
+      storePendingMeditation(transactionHash, wallet);
+      setHopState('verifying');
+      const completed = await verifyMeditationWithRetry(transactionHash, wallet);
+      await applyCompletedMeditation(completed);
+    } catch (cause) {
+      setErrorNotice(cause, hostMode);
+    } finally {
+      hopInProgressRef.current = false;
+      setHopState('idle');
+      setActiveAction(null);
+    }
+  }
+
+  function shareToX(text: string) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const url = `https://x.com/intent/post?text=${encodeURIComponent(`${text}\n\n${appUrl}`)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   async function shareHop() {
@@ -4331,6 +4515,30 @@ export function TobyHopApp() {
       verifying:
         'Recording your verified hop',
     };
+
+  const meditationStatus: Record<HopState, string> = {
+    idle: user.today_meditated ? 'Stillness found today' : 'Tap 🔺 for stillness',
+    connecting: 'Connecting to the pond',
+    'authenticating-farcaster': 'Linking your pond record',
+    'signing-in': 'Protecting your pond record',
+    quoting: 'Finding a $PATIENCE route',
+    approving: 'Approving $0.05 USDC',
+    swapping: 'Entering stillness',
+    confirming: 'Waiting for Base confirmation',
+    verifying: 'Recording your stillness',
+  };
+
+  const meditationSubtext: Record<HopState, string> = {
+    idle: user.today_meditated ? '+5 Big Pond Energy earned' : '$0.05 USDC → $PATIENCE · +5 BPE',
+    connecting: 'Use your Base wallet',
+    'authenticating-farcaster': 'Verifying your identity',
+    'signing-in': 'Sign once to protect progress',
+    quoting: 'Preparing the daily swap',
+    approving: 'Confirm the USDC approval',
+    swapping: 'Confirm the $PATIENCE swap',
+    confirming: 'Keep Toby Hop open',
+    verifying: 'One stillness session per UTC day',
+  };
 
   const connectButtonText =
     hopState ===
@@ -4978,6 +5186,10 @@ export function TobyHopApp() {
                   companionSpin
                     ? 'frog-coin-spin'
                     : '',
+
+                  activeAction === 'meditation'
+                    ? 'frog-meditating'
+                    : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -5015,6 +5227,21 @@ export function TobyHopApp() {
 
             <button
               type="button"
+              className={[
+                'meditation-triangle',
+                user.today_meditated ? 'meditation-complete' : '',
+                activeAction === 'meditation' ? 'meditation-active' : '',
+              ].filter(Boolean).join(' ')}
+              disabled={busy || user.today_meditated}
+              onClick={() => void performMeditation()}
+              aria-label={user.today_meditated ? 'Today’s stillness session is complete' : 'Meditate: swap $0.05 USDC for $PATIENCE and gain 5 Big Pond Energy'}
+            >
+              <span aria-hidden="true">🔺</span>
+              <small>{user.today_meditated ? 'Still' : 'Stillness'}</small>
+            </button>
+
+            <button
+              type="button"
               className="pond-sound-toggle pond-sound-toggle-lower"
               onClick={toggleSound}
               aria-label={soundEnabled ? 'Mute pond ambience' : 'Turn on pond ambience'}
@@ -5029,19 +5256,19 @@ export function TobyHopApp() {
               aria-live="polite"
             >
               <strong>
-                {user.today_hopped
-                  ? todaysPond.visitStatus
-                  : hopStatus[
-                      hopState
-                    ]}
+                {activeAction === 'meditation'
+                  ? meditationStatus[hopState]
+                  : user.today_hopped
+                    ? todaysPond.visitStatus
+                    : hopStatus[hopState]}
               </strong>
 
               <span>
-                {user.today_hopped
-                  ? todaysPond.interactionHint
-                  : hopSubtext[
-                      hopState
-                    ]}
+                {activeAction === 'meditation'
+                  ? meditationSubtext[hopState]
+                  : user.today_hopped
+                    ? todaysPond.interactionHint
+                    : hopSubtext[hopState]}
               </span>
             </div>
 
@@ -5187,6 +5414,14 @@ export function TobyHopApp() {
           onWalletLogout={() =>
             void logoutWallet()
           }
+          onProfileUpdated={({ displayName: nextName, pfpUrl }) => {
+            setUser((previous) => ({
+              ...previous,
+              display_name: nextName,
+              pfp_url: pfpUrl,
+            }));
+            void loadLeaderboard(leaderKind, leaderPage);
+          }}
         />
       )}
 
@@ -5385,6 +5620,14 @@ export function TobyHopApp() {
               <button
                 type="button"
                 className="secondary"
+                onClick={() => shareToX(receipt.castText)}
+              >
+                POST TO X
+              </button>
+
+              <button
+                type="button"
+                className="secondary"
                 onClick={() =>
                   setReceipt(
                     null,
@@ -5393,6 +5636,25 @@ export function TobyHopApp() {
               >
                 BACK TO THE POND
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {meditationReceipt && (
+        <div className="success success-meditation" role="dialog" aria-modal="true" aria-label="Stillness complete">
+          <div className="success-card meditation-success-card">
+            <div className="success-frog meditation-success-symbol" aria-hidden="true">🔺</div>
+            <div className="success-eyebrow">STILLNESS FOUND</div>
+            <div className="energy">+5 BIG POND ENERGY</div>
+            <div className="success-summary">
+              <strong>{meditationReceipt.patienceDisplay} $PATIENCE</strong>
+              <span>{meditationReceipt.totalEnergy.toLocaleString('en-US')} total Big Pond Energy</span>
+              <span>Stillness sessions: {meditationReceipt.totalMeditations.toLocaleString('en-US')}</span>
+            </div>
+            <div className="success-actions">
+              <button type="button" className="primary" onClick={() => shareToX(meditationReceipt.castText)}>POST TO X</button>
+              <button type="button" className="secondary" onClick={() => setMeditationReceipt(null)}>BACK TO THE POND</button>
             </div>
           </div>
         </div>

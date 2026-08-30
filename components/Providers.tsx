@@ -19,6 +19,7 @@ import {
   injected,
   walletConnect,
 } from 'wagmi/connectors';
+import { BASE_BUILDER_DATA_SUFFIX } from '@/lib/contracts';
 
 const appUrl =
   process.env.NEXT_PUBLIC_APP_URL ??
@@ -93,6 +94,11 @@ export const wagmiConfig =
           'https://mainnet.base.org',
         ),
     },
+
+    // ERC-8021 Builder Code attribution for web / non-Base-App wallets.
+    // The Base App appends the same code automatically when supported.
+    dataSuffix:
+      BASE_BUILDER_DATA_SUFFIX,
 
     ssr:
       true,
