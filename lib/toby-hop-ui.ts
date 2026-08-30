@@ -41,6 +41,8 @@ export const EMPTY_USER: HopUser = {
   first_hop_at: null,
   last_hop_at: null,
   today_hopped: false,
+  today_meditated: false,
+  total_meditations: 0,
   rank: null,
 };
 
@@ -71,6 +73,8 @@ export function normalizeUser(value?: StoredHopUser | null, farcasterUser?: Mini
     first_hop_at: value?.first_hop_at ?? null,
     last_hop_at: value?.last_hop_at ?? null,
     today_hopped: Boolean(value?.today_hopped),
+    today_meditated: Boolean(value?.today_meditated),
+    total_meditations: safeNumber(value?.total_meditations),
     rank: value?.rank == null ? null : safeNumber(value.rank),
   };
 }
@@ -90,7 +94,7 @@ export function getErrorMessage(cause: unknown, hostMode: HostMode = 'browser'):
   if (message.includes('audience') || message.includes('domain')) return 'Toby Hop could not validate the app domain. Close and reopen the Mini App.';
   if (message.includes('timeout') || message.includes('timed out') || message.includes('aborted')) return 'The pond took too long to respond. Please try again.';
   if (message.includes('rejected') || message.includes('denied')) return 'The request was cancelled.';
-  if (message.includes('insufficient')) return 'You need at least one cent of USDC on Base and a small amount of ETH for gas.';
+  if (message.includes('insufficient')) return 'You need enough USDC on Base for this action and a small amount of ETH for gas.';
   if (message.includes('already hopped') || message.includes('already complete')) return 'You already completed today’s official hop.';
   if (message.includes('quick auth') || message.includes('invalid farcaster') || message.includes('farcaster authentication failed')) return 'Farcaster could not verify this session. Close and reopen Toby Hop, then retry.';
   if (message.includes('unauthorized') || message.includes('not authenticated') || message.includes('session expired') || message.includes('invalid session')) return hostMode === 'farcaster' ? 'Your Farcaster session expired. Tap retry to reconnect.' : 'Connect and sign in with your Base wallet to continue.';
@@ -110,6 +114,7 @@ export function isSessionError(message: string): boolean {
   const value = message.toLowerCase();
   return value.includes('authentication') || value.includes('unauthorized') || value.includes('session expired') || value.includes('invalid session');
 }
-export function isEligibleLeader(row: { total_hops?: number | null; last_hop_at?: string | null }): boolean {
-  return safeNumber(row.total_hops) > 0 && Boolean(row.last_hop_at);
+export function isEligibleLeader(row: { total_hops?: number | null; big_pond_energy?: number | null }): boolean {
+  return safeNumber(row.total_hops) > 0 || safeNumber(row.big_pond_energy) > 0;
 }
+

@@ -19,6 +19,23 @@ export const HOP_USDC_ATOMIC = BigInt(
   process.env.HOP_USDC_ATOMIC ?? '10000',
 );
 
+export const MEDITATION_USDC_ATOMIC = BigInt(
+  process.env.MEDITATION_USDC_ATOMIC ?? '50000',
+);
+
+export const PATIENCE_ADDRESS = getAddress(
+  process.env.NEXT_PUBLIC_PATIENCE_ADDRESS ??
+    '0x6D96f18F00B815B2109A3766E79F6A7aD7785624',
+);
+
+export const BASE_BUILDER_CODE =
+  process.env.NEXT_PUBLIC_BASE_BUILDER_CODE ?? 'bc_d0rg3wwa';
+
+// ERC-8021 attribution suffix generated for bc_d0rg3wwa.
+export const BASE_BUILDER_DATA_SUFFIX =
+  (process.env.NEXT_PUBLIC_BASE_BUILDER_DATA_SUFFIX ??
+    '0x62635f64307267337777610b0080218021802180218021802180218021') as `0x${string}`;
+
 export function getTokenConfig() {
   if (
     !rawUsdcAddress ||

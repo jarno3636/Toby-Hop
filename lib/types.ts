@@ -21,12 +21,15 @@ export type HopUser = {
   last_hop_at: string | null;
 
   today_hopped: boolean;
+  today_meditated: boolean;
+  total_meditations: number;
   rank: number | null;
 };
 
 export type LeaderboardKind =
   | 'streak'
   | 'hops'
+  | 'energy'
   | 'toby';
 
 export type LeaderRow = {
@@ -42,6 +45,7 @@ export type LeaderRow = {
 
   current_streak: number;
   total_hops: number;
+  big_pond_energy: number;
   total_toby_atomic: string;
 
   rank: number;
@@ -161,6 +165,20 @@ export type PondJournal = {
   conditions: PondJournalConditions | null;
   communityDiscoveries: PondCommunityDiscovery[];
   notificationHealth: NotificationHealth;
+};
+
+export type MeditationReceipt = {
+  meditationId: string;
+  patienceAtomic: string;
+  patienceDisplay: string;
+  usdcAtomic: string;
+  energyAwarded: number;
+  totalEnergy: number;
+  totalMeditations: number;
+  castText: string;
+  txHash: `0x${string}`;
+  alreadyRecorded?: boolean;
+  accountAbstraction?: boolean | null;
 };
 
 export type HopReceipt = {
