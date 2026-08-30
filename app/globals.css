@@ -5166,3 +5166,219 @@ img {
     animation: none !important;
   }
 }
+
+/* Compact saved pond profile + persistent Stillness state */
+.pond-profile-edit-button {
+  width: fit-content;
+  margin-top: 7px;
+  padding: 5px 9px;
+  border: 1px solid rgba(193, 238, 228, 0.2);
+  border-radius: 999px;
+  background: rgba(3, 27, 30, 0.5);
+  color: rgba(232, 255, 249, 0.82);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  cursor: pointer;
+}
+
+.pond-profile-edit-button:hover {
+  border-color: rgba(126, 231, 205, 0.5);
+  color: #f5fffc;
+}
+
+.pond-profile-cancel {
+  min-height: 42px;
+}
+
+.journal-patience-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.journal-patience-card > strong {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.journal-patience-earned {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(185, 236, 223, 0.1);
+}
+
+.journal-patience-earned span {
+  font-size: 9px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: rgba(224, 255, 247, .55);
+}
+
+.journal-patience-earned b {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(246, 255, 252, .9);
+}
+
+/* Red PATIENCE triangle: label sits inside the triangle itself. */
+.meditation-triangle {
+  width: 94px;
+  height: 82px;
+  min-height: 82px;
+  padding: 16px 10px 8px;
+  border: 0;
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: linear-gradient(180deg, #ff493d 0%, #d51e2a 72%, #a50f1d 100%);
+  box-shadow: none;
+  backdrop-filter: none;
+  color: white;
+  filter: drop-shadow(0 10px 12px rgba(42, 3, 8, .34));
+}
+
+.meditation-triangle::after {
+  content: '';
+  position: absolute;
+  inset: 7px 8px 6px;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  border: 1px solid rgba(255,255,255,.24);
+  pointer-events: none;
+}
+
+.meditation-triangle:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: none;
+  filter: drop-shadow(0 13px 15px rgba(42, 3, 8, .42)) drop-shadow(0 0 12px rgba(255, 64, 62, .24));
+}
+
+.meditation-triangle-label {
+  position: relative;
+  z-index: 2;
+  margin-top: 20px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 4px rgba(75, 0, 5, .5);
+}
+
+.meditation-triangle.meditation-complete {
+  opacity: .72;
+  filter: drop-shadow(0 8px 10px rgba(42, 3, 8, .28));
+}
+
+/* Compact saved pond profile + persistent Stillness state */
+.pond-profile-edit-button {
+  width: fit-content;
+  margin-top: 7px;
+  padding: 5px 9px;
+  border: 1px solid rgba(193, 238, 228, 0.2);
+  border-radius: 999px;
+  background: rgba(3, 27, 30, 0.5);
+  color: rgba(232, 255, 249, 0.82);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  cursor: pointer;
+}
+
+.pond-profile-edit-button:hover {
+  border-color: rgba(126, 231, 205, 0.5);
+  color: #f5fffc;
+}
+
+.pond-profile-cancel {
+  min-height: 42px;
+}
+
+.journal-patience-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.journal-patience-card > strong {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.journal-patience-earned {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(185, 236, 223, 0.1);
+}
+
+.journal-patience-earned span {
+  font-size: 9px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: rgba(224, 255, 247, .55);
+}
+
+.journal-patience-earned b {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(246, 255, 252, .9);
+}
+
+/* Red PATIENCE triangle: label sits inside the triangle itself. */
+.meditation-triangle {
+  width: 94px;
+  height: 82px;
+  min-height: 82px;
+  padding: 16px 10px 8px;
+  border: 0;
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: linear-gradient(180deg, #ff493d 0%, #d51e2a 72%, #a50f1d 100%);
+  box-shadow: none;
+  backdrop-filter: none;
+  color: white;
+  filter: drop-shadow(0 10px 12px rgba(42, 3, 8, .34));
+}
+
+.meditation-triangle::after {
+  content: '';
+  position: absolute;
+  inset: 7px 8px 6px;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  border: 1px solid rgba(255,255,255,.24);
+  pointer-events: none;
+}
+
+.meditation-triangle:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: none;
+  filter: drop-shadow(0 13px 15px rgba(42, 3, 8, .42)) drop-shadow(0 0 12px rgba(255, 64, 62, .24));
+}
+
+.meditation-triangle-label {
+  position: relative;
+  z-index: 2;
+  margin-top: 20px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 4px rgba(75, 0, 5, .5);
+}
+
+.meditation-triangle.meditation-complete {
+  opacity: .72;
+  filter: drop-shadow(0 8px 10px rgba(42, 3, 8, .28));
+}
+
+.meditation-triangle > .meditation-triangle-label {
+  font-size: 10px;
+  line-height: 1;
+  filter: none;
+}
