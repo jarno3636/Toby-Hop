@@ -5382,3 +5382,97 @@ img {
   line-height: 1;
   filter: none;
 }
+
+/* =========================================================
+   LIGHTWEIGHT PROFILE REMINDER
+   ========================================================= */
+
+.profile-reminder {
+  position: fixed;
+  z-index: 29;
+  left: 50%;
+  bottom: max(86px, calc(env(safe-area-inset-bottom) + 78px));
+  width: min(calc(100% - 32px), 488px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px 11px 14px;
+  border: 1px solid rgba(250, 204, 21, 0.72);
+  border-radius: 16px;
+  color: #fff3b0;
+  background: rgba(74, 55, 8, 0.94);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28), 0 0 22px rgba(250, 204, 21, 0.08);
+  transform: translateX(-50%);
+  backdrop-filter: blur(18px);
+}
+
+.profile-reminder-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.profile-reminder-copy strong {
+  color: #fff8d4;
+  font-size: 0.78rem;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.profile-reminder-copy span {
+  color: rgba(255, 243, 176, 0.82);
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.28;
+}
+
+.profile-reminder-action {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(250, 204, 21, 0.7);
+  border-radius: 10px;
+  color: #241b02;
+  background: #facc15;
+  font-size: 0.65rem;
+  font-weight: 950;
+  letter-spacing: 0.035em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.profile-reminder-close {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: rgba(255, 248, 212, 0.8);
+  background: transparent;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (max-width: 420px) {
+  .profile-reminder {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .profile-reminder-copy span {
+    display: none;
+  }
+
+  .profile-reminder-close {
+    position: absolute;
+    top: -8px;
+    right: -6px;
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(250, 204, 21, 0.5);
+    background: rgba(74, 55, 8, 0.98);
+  }
+}
