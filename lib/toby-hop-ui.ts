@@ -60,6 +60,7 @@ export function normalizeUser(value?: StoredHopUser | null, farcasterUser?: Mini
   const dbFid = typeof value?.fid === 'number' && value.fid > 0 ? value.fid : null;
   const fcFid = typeof farcasterUser?.fid === 'number' && farcasterUser.fid > 0 ? farcasterUser.fid : null;
   return {
+    wallet_address: value?.wallet_address ?? null,
     fid: dbFid ?? fcFid ?? 0,
     username: value?.username ?? farcasterUser?.username ?? null,
     display_name: value?.display_name ?? farcasterUser?.displayName ?? farcasterUser?.username ?? 'Pond Hopper',
