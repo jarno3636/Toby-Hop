@@ -16,6 +16,7 @@ import {
 } from 'wagmi';
 import { base } from 'wagmi/chains';
 import {
+  coinbaseWallet,
   injected,
   walletConnect,
 } from 'wagmi/connectors';
@@ -42,6 +43,18 @@ export const wagmiConfig =
         chooseConnector() logic will still select this connector.
       */
       farcasterMiniApp(),
+
+      /*
+        Base App / Coinbase Wallet / Base Account support.
+
+        This is intentionally available before WalletConnect so an embedded
+        Base wallet can connect natively instead of opening a QR/deep-link
+        flow. Regular browsers can still fall through to WalletConnect.
+      */
+      coinbaseWallet({
+        appName: 'Toby Hop',
+        appLogoUrl: `${appUrl}/icon.png`,
+      }),
 
       /*
         Standalone browser support.

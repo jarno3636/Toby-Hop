@@ -154,10 +154,14 @@ const PENDING_MEDITATION_STORAGE_KEY =
 
 const FARCASTER_CONTEXT_RETRY_DELAYS_MS = [
   0,
+  250,
   500,
-  1_000,
-  2_000,
 ];
+
+// Do not make Base App, Coinbase Wallet, or a normal browser wait on a
+// Farcaster-only bridge that is not present. Farcaster still gets several
+// short probes before we fall back to the portable wallet/SIWE path.
+const FARCASTER_CONTEXT_TIMEOUT_MS = 1_200;
 
 const VERIFY_RETRY_DELAYS_MS = [
   0,
@@ -1050,7 +1054,7 @@ Promise<MiniAppContextResult> {
             sdk.context,
           ),
 
-          SDK_TIMEOUT_MS,
+          FARCASTER_CONTEXT_TIMEOUT_MS,
 
           'Farcaster context timed out.',
         );
@@ -2334,20 +2338,26 @@ export function TobyHopApp() {
       );
 
       try {
-        try {
-          await withTimeout(
-            sdk.actions.ready(),
-
-            SDK_TIMEOUT_MS,
-
-            'Farcaster ready timed out.',
-          );
-        } catch {
-          // Browser sessions continue without the SDK.
-        }
-
+        /*
+          Probe Farcaster context directly. Do not await sdk.actions.ready()
+          before host detection: in Base App and ordinary wallet browsers there
+          is no Farcaster host bridge, and waiting for it makes startup feel
+          broken. ready() is called only after Farcaster is actually detected.
+        */
         const context =
           await getSafeMiniAppContext();
+
+        if (context.available) {
+          try {
+            await withTimeout(
+              sdk.actions.ready(),
+              SDK_TIMEOUT_MS,
+              'Farcaster ready timed out.',
+            );
+          } catch {
+            // Context is enough to continue; ready is a host UX signal only.
+          }
+        }
 
         if (!active) {
           return;
@@ -2735,110 +2745,63 @@ export function TobyHopApp() {
   }
 
   function chooseConnector() {
-    if (
-      !connectors.length
-    ) {
+    if (!connectors.length) {
       return null;
     }
 
-    if (
-      isFarcasterMiniApp
-    ) {
-      return (
-        connectors.find(
-          isFarcasterConnector,
-        ) ??
-        null
-      );
-    }
-
-    const walletConnectConnector =
-      connectors.find(
-        (connector) => {
-          const value =
-            `${connector.id} ${connector.name}`
-              .toLowerCase();
-
-          return (
-            value.includes(
-              'walletconnect',
-            ) ||
-            value.includes(
-              'wallet connect',
-            )
-          );
-        },
-      );
-
-    if (
-      walletConnectConnector
-    ) {
-      return walletConnectConnector;
+    if (isFarcasterMiniApp) {
+      return connectors.find(isFarcasterConnector) ?? null;
     }
 
     const baseAccountConnector =
-      connectors.find(
-        (connector) => {
-          const value =
-            `${connector.id} ${connector.name}`
-              .toLowerCase();
+      connectors.find((connector) => {
+        const value = `${connector.id} ${connector.name}`.toLowerCase();
+        return (
+          value.includes('base account') ||
+          value.includes('coinbase')
+        );
+      });
 
-          return (
-            value.includes(
-              'base account',
-            ) ||
-            value.includes(
-              'coinbase',
-            )
-          );
-        },
-      );
-
-    if (
-      baseAccountConnector
-    ) {
+    /*
+      Base App and Coinbase Wallet should stay inside their native webview.
+      Choosing WalletConnect first can unnecessarily open a QR/deep-link flow.
+    */
+    if (baseAccountConnector) {
       return baseAccountConnector;
     }
 
     const injectedConnector =
-      connectors.find(
-        (connector) => {
-          const value =
-            `${connector.id} ${connector.name}`
-              .toLowerCase();
-
-          return (
-            connector.id ===
-              'injected' ||
-            value.includes(
-              'injected',
-            ) ||
-            value.includes(
-              'browser wallet',
-            )
-          );
-        },
-      );
+      connectors.find((connector) => {
+        const value = `${connector.id} ${connector.name}`.toLowerCase();
+        return (
+          connector.id === 'injected' ||
+          value.includes('injected') ||
+          value.includes('browser wallet')
+        );
+      });
 
     const hasInjectedProvider =
-      typeof window !==
-        'undefined' &&
-      Boolean(
-        (
-          window as Window & {
-            ethereum?: unknown;
-          }
-        ).ethereum,
-      );
+      typeof window !== 'undefined' &&
+      Boolean((window as Window & { ethereum?: unknown }).ethereum);
 
-    if (
-      injectedConnector &&
-      hasInjectedProvider
-    ) {
+    if (hasInjectedProvider && injectedConnector) {
       return injectedConnector;
     }
 
-    return null;
+    const walletConnectConnector =
+      connectors.find((connector) => {
+        const value = `${connector.id} ${connector.name}`.toLowerCase();
+        return (
+          value.includes('walletconnect') ||
+          value.includes('wallet connect')
+        );
+      });
+
+    if (walletConnectConnector) {
+      return walletConnectConnector;
+    }
+
+    return injectedConnector ?? connectors.find((connector) => !isFarcasterConnector(connector)) ?? null;
   }
 
   function recoverConnectedAccount():
@@ -3689,12 +3652,26 @@ export function TobyHopApp() {
                 message,
               );
 
-            if (
-              response.status ===
-                401 ||
-              response.status ===
-                403
-            ) {
+            if (response.status === 401) {
+              if (isFarcasterMiniApp && farcasterUser) {
+                const refreshed = await authenticateWithFarcaster(
+                  farcasterUser,
+                  wallet,
+                );
+                if (refreshed?.authenticated) {
+                  lastError = null;
+                  continue;
+                }
+              } else {
+                const refreshedWallet = await signInWithWallet(wallet);
+                if (refreshedWallet && addressesMatch(refreshedWallet, wallet)) {
+                  lastError = null;
+                  continue;
+                }
+              }
+            }
+
+            if (response.status === 403) {
               throw lastError;
             }
           } catch (cause) {
@@ -3716,9 +3693,6 @@ export function TobyHopApp() {
               ) ||
               message.includes(
                 'submitted wallet',
-              ) ||
-              message.includes(
-                'authentication',
               )
             ) {
               throw lastError;
@@ -3733,7 +3707,7 @@ export function TobyHopApp() {
           )
         );
       },
-      [],
+      [authenticateWithFarcaster, farcasterUser, isFarcasterMiniApp, signInWithWallet],
     );
 
   const getHopQuoteWithRetry =
@@ -4224,19 +4198,29 @@ export function TobyHopApp() {
            * source of truth, so refresh Quick Auth here and retry verification
            * instead of stranding the user on "Recording your stillness".
            */
-          if (
-            response.status === 401 &&
-            isFarcasterMiniApp &&
-            farcasterUser
-          ) {
-            const refreshed = await authenticateWithFarcaster(
-              farcasterUser,
-              wallet,
-            );
+          if (response.status === 401) {
+            if (isFarcasterMiniApp && farcasterUser) {
+              const refreshed = await authenticateWithFarcaster(
+                farcasterUser,
+                wallet,
+              );
 
-            if (refreshed?.authenticated) {
-              lastError = null;
-              continue;
+              if (refreshed?.authenticated) {
+                lastError = null;
+                continue;
+              }
+            } else {
+              /*
+                Wallet apps can also suspend/recreate their webview while the
+                transaction sheet is open. Re-establish the portable SIWE
+                session against the SAME wallet, then verify the already-mined
+                transaction. Never send a second $PATIENCE purchase here.
+              */
+              const refreshedWallet = await signInWithWallet(wallet);
+              if (refreshedWallet && addressesMatch(refreshedWallet, wallet)) {
+                lastError = null;
+                continue;
+              }
             }
           }
 
@@ -4249,7 +4233,7 @@ export function TobyHopApp() {
       }
       throw lastError ?? new Error('Unable to verify the stillness session.');
     },
-    [authenticateWithFarcaster, farcasterUser, isFarcasterMiniApp],
+    [authenticateWithFarcaster, farcasterUser, isFarcasterMiniApp, signInWithWallet],
   );
 
   const applyCompletedMeditation = useCallback(
