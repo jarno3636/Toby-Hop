@@ -92,8 +92,22 @@ function parseTransfers(receipt: TransactionReceipt, wallet: Address): ParsedTra
   return { usdcSpent, patienceReceived };
 }
 
-function buildMeditationCast(patienceDisplay: string, totalEnergy: number): string {
-  return `Found stillness at the pond 🔺\n\nSwapped $0.05 USDC for ${patienceDisplay} $PATIENCE and gained +5 Big Pond Energy.\n\nBig Pond Energy: ${totalEnergy.toLocaleString('en-US')}\n\n$toby $patience`;
+function buildMeditationCast(totalEnergy: number): string {
+  return `Found stillness at the pond 🔺\n\nA daily $PATIENCE stillness session earned +5 Big Pond Energy.\n\nBig Pond Energy: ${totalEnergy.toLocaleString('en-US')}\n\n$toby $patience`;
+}
+
+async function totalPatienceForIdentity(wallet: Address, fid: number | null): Promise<string> {
+  const filters = [`wallet_address.eq.${wallet.toLowerCase()}`];
+  if (fid && fid > 0) filters.push(`fid.eq.${fid}`);
+
+  const { data, error } = await supabaseAdmin()
+    .from('toby_meditations')
+    .select('patience_amount_atomic')
+    .or(filters.join(','));
+  if (error) throw error;
+  return (data ?? [])
+    .reduce((sum: bigint, row: { patience_amount_atomic?: string | null }) => sum + BigInt(row.patience_amount_atomic ?? '0'), 0n)
+    .toString();
 }
 
 async function existingByHash(hash: string): Promise<ExistingMeditation | null> {
@@ -141,7 +155,9 @@ export async function POST(request: Request) {
         .select('id', { count: 'exact', head: true })
         .ilike('wallet_address', wallet.toLowerCase());
       const patienceAtomic = already.patience_amount_atomic ?? '0';
-      const patienceDisplay = formatAtomic(patienceAtomic, 18, 2);
+      const patienceDisplay = formatAtomic(patienceAtomic, 18, 8);
+      const totalPatienceAtomic = await totalPatienceForIdentity(wallet, identity.fid);
+      const totalPatienceDisplay = formatAtomic(totalPatienceAtomic, 18, 8);
 
       return NextResponse.json({
         meditationId: already.id,
@@ -151,7 +167,9 @@ export async function POST(request: Request) {
         energyAwarded: ENERGY_AWARD,
         totalEnergy,
         totalMeditations: countResult.count ?? 1,
-        castText: buildMeditationCast(patienceDisplay, totalEnergy),
+        totalPatienceAtomic,
+        totalPatienceDisplay,
+        castText: buildMeditationCast(totalEnergy),
         txHash: hash,
         alreadyRecorded: true,
       });
@@ -194,7 +212,9 @@ export async function POST(request: Request) {
 
     const totalEnergy = Number(result.energy_after ?? 0);
     const totalMeditations = Number(result.total_meditations_after ?? 1);
-    const patienceDisplay = formatAtomic(patienceReceived, 18, 2);
+    const patienceDisplay = formatAtomic(patienceReceived, 18, 8);
+    const totalPatienceAtomic = await totalPatienceForIdentity(wallet, identity.fid);
+    const totalPatienceDisplay = formatAtomic(totalPatienceAtomic, 18, 8);
 
     return NextResponse.json({
       meditationId: result.meditation_id,
@@ -204,7 +224,9 @@ export async function POST(request: Request) {
       energyAwarded: ENERGY_AWARD,
       totalEnergy,
       totalMeditations,
-      castText: buildMeditationCast(patienceDisplay, totalEnergy),
+      totalPatienceAtomic,
+      totalPatienceDisplay,
+      castText: buildMeditationCast(totalEnergy),
       txHash: hash,
       alreadyRecorded: Boolean(result.already_recorded),
       accountAbstraction: !addressesMatch(transaction.from, wallet),
