@@ -22,6 +22,7 @@ export async function GET() {
 
     let todayMeditated = false;
     let totalMeditations = 0;
+    let totalPatienceAtomic = '0';
 
     if (identity.wallet || identity.fid) {
       const filters: string[] = [];
@@ -30,14 +31,19 @@ export async function GET() {
       const filter = filters.join(',');
       const db = supabaseAdmin();
       const today = new Date().toISOString().slice(0, 10);
-      const [todayResult, countResult] = await Promise.all([
+      const [todayResult, meditationResult] = await Promise.all([
         db.from('toby_meditations').select('id').eq('meditation_day', today).or(filter).limit(1).maybeSingle(),
-        db.from('toby_meditations').select('id', { count: 'exact', head: true }).or(filter),
+        db.from('toby_meditations').select('id,patience_amount_atomic').or(filter),
       ]);
 
       // Deploy-safe before the migration is applied: auth still works.
       if (!todayResult.error) todayMeditated = Boolean(todayResult.data);
-      if (!countResult.error) totalMeditations = countResult.count ?? 0;
+      if (!meditationResult.error) {
+        totalMeditations = meditationResult.data?.length ?? 0;
+        totalPatienceAtomic = (meditationResult.data ?? [])
+          .reduce((sum: bigint, row: { patience_amount_atomic?: string | null }) => sum + BigInt(row.patience_amount_atomic ?? '0'), 0n)
+          .toString();
+      }
     }
 
     return NextResponse.json(
@@ -47,7 +53,7 @@ export async function GET() {
         fid: identity.fid,
         address: identity.wallet,
         user: identity.user
-          ? { ...identity.user, today_meditated: todayMeditated, total_meditations: totalMeditations }
+          ? { ...identity.user, today_meditated: todayMeditated, total_meditations: totalMeditations, total_patience_atomic: totalPatienceAtomic }
           : identity.user,
       },
       {
