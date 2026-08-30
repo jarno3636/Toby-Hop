@@ -4214,17 +4214,42 @@ export function TobyHopApp() {
           );
           const raw = await response.text();
           if (response.ok) return JSON.parse(raw) as MeditationReceipt;
+
           lastError = new Error(parseApiError(raw, 'Unable to verify the stillness session.'));
-          if (response.status === 401 || response.status === 403 || response.status === 409) throw lastError;
+
+          /*
+           * A Base/Farcaster wallet handoff can suspend the Mini App long
+           * enough for the app session cookie to be unavailable when we come
+           * back to record the already-confirmed swap.  The onchain tx is the
+           * source of truth, so refresh Quick Auth here and retry verification
+           * instead of stranding the user on "Recording your stillness".
+           */
+          if (
+            response.status === 401 &&
+            isFarcasterMiniApp &&
+            farcasterUser
+          ) {
+            const refreshed = await authenticateWithFarcaster(
+              farcasterUser,
+              wallet,
+            );
+
+            if (refreshed?.authenticated) {
+              lastError = null;
+              continue;
+            }
+          }
+
+          if (response.status === 403 || response.status === 409) throw lastError;
         } catch (cause) {
           lastError = cause instanceof Error ? cause : new Error('Unable to verify the stillness session.');
           const message = lastError.message.toLowerCase();
-          if (message.includes('authentication') || message.includes('submitted wallet') || message.includes('already complete')) throw lastError;
+          if (message.includes('submitted wallet') || message.includes('already complete')) throw lastError;
         }
       }
       throw lastError ?? new Error('Unable to verify the stillness session.');
     },
-    [],
+    [authenticateWithFarcaster, farcasterUser, isFarcasterMiniApp],
   );
 
   const applyCompletedMeditation = useCallback(
