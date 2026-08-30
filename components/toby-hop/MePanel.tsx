@@ -5,7 +5,10 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { erc20Abi, isAddress, type Address } from 'viem';
+import { useReadContract } from 'wagmi';
 
+import { PATIENCE_ADDRESS } from '@/lib/contracts';
 import { formatAtomic } from '@/lib/format';
 import type {
   HopUser,
@@ -179,6 +182,23 @@ export function MePanel(props: Props) {
   const [selectedAvatar, setSelectedAvatar] = useState(profilePfp && profilePfp.startsWith('/avatars/') ? profilePfp : '/avatars/gray.webp');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const hasCustomPondProfile = Boolean(
+    !isFarcasterMiniApp &&
+    user.display_name?.trim() &&
+    user.pfp_url?.startsWith('/avatars/'),
+  );
+  const [editingProfile, setEditingProfile] = useState(!hasCustomPondProfile);
+
+  const walletForPatience = user.wallet_address && isAddress(user.wallet_address)
+    ? (user.wallet_address as Address)
+    : undefined;
+  const { data: livePatienceBalance } = useReadContract({
+    address: PATIENCE_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: walletForPatience ? [walletForPatience] : undefined,
+    query: { enabled: Boolean(walletForPatience) },
+  });
 
   const [journal, setJournal] =
     useState<PondJournal>(EMPTY_JOURNAL);
@@ -261,6 +281,10 @@ export function MePanel(props: Props) {
     if (profilePfp?.startsWith('/avatars/')) setSelectedAvatar(profilePfp);
   }, [displayName, profilePfp]);
 
+  useEffect(() => {
+    if (hasCustomPondProfile) setEditingProfile(false);
+  }, [hasCustomPondProfile]);
+
   async function saveProfile() {
     const name = profileName.trim().slice(0, 40);
     if (!name) {
@@ -285,6 +309,7 @@ export function MePanel(props: Props) {
       if (!response.ok) throw new Error(payload.error || 'Unable to save your pond profile.');
       onProfileUpdated({ displayName: name, pfpUrl: selectedAvatar });
       setProfileMessage('Profile saved to the pond.');
+      setEditingProfile(false);
     } catch (cause) {
       setProfileMessage(cause instanceof Error ? cause.message : 'Unable to save your pond profile.');
     } finally {
@@ -378,6 +403,18 @@ export function MePanel(props: Props) {
               <div>
                 <strong>{displayName}</strong>
                 <span>{user.current_title || 'Pond Hopper'}</span>
+                {!isFarcasterMiniApp && !editingProfile && (
+                  <button
+                    type="button"
+                    className="pond-profile-edit-button"
+                    onClick={() => {
+                      setProfileMessage(null);
+                      setEditingProfile(true);
+                    }}
+                  >
+                    EDIT PROFILE
+                  </button>
+                )}
               </div>
             </div>
 
@@ -387,7 +424,7 @@ export function MePanel(props: Props) {
           </section>
 
 
-          {!isFarcasterMiniApp && (
+          {!isFarcasterMiniApp && editingProfile && (
             <section className="pond-profile-editor">
               <div className="journal-section-heading">
                 <div>
@@ -432,6 +469,21 @@ export function MePanel(props: Props) {
                 >
                   {profileSaving ? 'SAVING' : 'SAVE PROFILE'}
                 </button>
+                {hasCustomPondProfile && (
+                  <button
+                    type="button"
+                    className="secondary pond-profile-cancel"
+                    onClick={() => {
+                      setProfileName(displayName === 'Pond Hopper' ? '' : displayName);
+                      if (profilePfp?.startsWith('/avatars/')) setSelectedAvatar(profilePfp);
+                      setProfileMessage(null);
+                      setEditingProfile(false);
+                    }}
+                    disabled={profileSaving}
+                  >
+                    CANCEL
+                  </button>
+                )}
                 {profileMessage && <span role="status">{profileMessage}</span>}
               </div>
             </section>
@@ -524,10 +576,14 @@ export function MePanel(props: Props) {
               <small>verified daily sessions</small>
             </article>
 
-            <article>
-              <span>$PATIENCE received</span>
-              <strong>{formatAtomic(user.total_patience_atomic, 18, 8)}</strong>
-              <small>from verified stillness</small>
+            <article className="journal-patience-card">
+              <span>$PATIENCE balance</span>
+              <strong>{livePatienceBalance !== undefined ? formatAtomic(livePatienceBalance, 18, 12) : '—'}</strong>
+              <small>live in your connected wallet</small>
+              <div className="journal-patience-earned">
+                <span>From Stillness</span>
+                <b>{formatAtomic(user.total_patience_atomic, 18, 12)}</b>
+              </div>
             </article>
           </section>
 
