@@ -5025,19 +5025,39 @@ img {
   position: absolute;
   z-index: 2;
   left: 50%;
-  top: 59%;
+  top: 62%;
   transform: translate(-50%, -50%);
-  width: 76px;
-  font-size: 12px !important;
+  width: 84%;
+  max-width: 92px;
+  font-size: 10px !important;
   line-height: 1 !important;
   font-weight: 900;
-  letter-spacing: .055em;
+  letter-spacing: .025em;
   text-transform: uppercase;
   text-align: center;
+  white-space: nowrap;
+  overflow: visible;
   color: #fff8f5;
   text-shadow: 0 2px 3px rgba(69, 4, 15, .52);
   filter: none !important;
   pointer-events: none;
+}
+
+/* Keep the full STILLNESS word centered inside the illustrated triangle on small webviews. */
+@media (max-width: 520px) {
+  .meditation-triangle {
+    right: 22px;
+    width: 104px;
+    height: 91px;
+  }
+
+  .meditation-triangle-label {
+    top: 63%;
+    width: 88%;
+    max-width: none;
+    font-size: 9.5px !important;
+    letter-spacing: .015em;
+  }
 }
 
 .meditation-triangle:hover:not(:disabled) {
@@ -5076,11 +5096,6 @@ img {
 .frog.frog-meditating {
   filter: drop-shadow(0 0 14px rgba(255, 111, 92, 0.8)) drop-shadow(0 0 32px rgba(255, 201, 119, 0.42));
   animation: frogMeditationGlow 1.65s ease-in-out infinite !important;
-}
-
-@keyframes meditationTrianglePulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.06); }
 }
 
 @keyframes frogMeditationGlow {
