@@ -8,7 +8,7 @@ import {
 import { erc20Abi, isAddress, type Address } from 'viem';
 import { useReadContract } from 'wagmi';
 
-import { PATIENCE_ADDRESS } from '@/lib/contracts';
+import { PATIENCE_ADDRESS, TABOSHI_ADDRESS } from '@/lib/contracts';
 import { formatAtomic } from '@/lib/format';
 import type {
   HopUser,
@@ -194,6 +194,14 @@ export function MePanel(props: Props) {
     : undefined;
   const { data: livePatienceBalance } = useReadContract({
     address: PATIENCE_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: walletForPatience ? [walletForPatience] : undefined,
+    query: { enabled: Boolean(walletForPatience) },
+  });
+
+  const { data: liveTaboshiBalance } = useReadContract({
+    address: TABOSHI_ADDRESS,
     abi: erc20Abi,
     functionName: 'balanceOf',
     args: walletForPatience ? [walletForPatience] : undefined,
@@ -567,7 +575,7 @@ export function MePanel(props: Props) {
             <article>
               <span>Big Pond Energy</span>
               <strong>{user.big_pond_energy}</strong>
-              <small>hops + stillness</small>
+              <small>hops + stillness + leaves</small>
             </article>
 
             <article>
@@ -583,6 +591,16 @@ export function MePanel(props: Props) {
               <div className="journal-patience-earned">
                 <span>From Stillness</span>
                 <b>{formatAtomic(user.total_patience_atomic, 18, 12)}</b>
+              </div>
+            </article>
+
+            <article className="journal-patience-card">
+              <span>$TABOSHI balance</span>
+              <strong>{liveTaboshiBalance !== undefined ? formatAtomic(liveTaboshiBalance, 18, 8) : '—'}</strong>
+              <small>live in your connected wallet</small>
+              <div className="journal-patience-earned">
+                <span>From Leaves</span>
+                <b>{formatAtomic(user.total_taboshi_atomic || '0', 18, 8)}</b>
               </div>
             </article>
           </section>

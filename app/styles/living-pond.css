@@ -974,3 +974,57 @@
   .pond-wonder-piece { animation: none !important; }
   .pond-wonder { display: none; }
 }
+
+/* Taboshi green leaf button */
+.taboshi-leaf {
+  position: absolute;
+  bottom: 28%;
+  right: 22%;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  z-index: 20;
+  pointer-events: auto;
+  transition: transform 0.2s ease;
+  filter: drop-shadow(0 2px 4px rgba(0, 80, 0, 0.4));
+}
+
+.taboshi-leaf:hover,
+.taboshi-leaf:focus-visible {
+  transform: scale(1.15) rotate(-8deg);
+  outline: none;
+}
+
+.taboshi-leaf svg {
+  width: 100%;
+  height: 100%;
+  animation: leafFloat 4s ease-in-out infinite;
+}
+
+@keyframes leafFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-6px) rotate(5deg); }
+}
+
+/* Falling leaves animation (triggered after successful Taboshi tx + back to pond) */
+.falling-leaves-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  overflow: hidden;
+}
+
+.falling-leaf {
+  position: absolute;
+  top: -10%;
+  font-size: 20px;
+  opacity: 0.9;
+  animation: fallLeaf 3.5s linear forwards;
+  filter: drop-shadow(0 1px 2px rgba(0,60,0,0.3));
+}
+
+@keyframes fallLeaf {
+  0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(110vh) rotate(360deg); opacity: 0.3; }
+}
