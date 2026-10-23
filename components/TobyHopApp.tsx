@@ -47,6 +47,7 @@ import {
   erc20Abi,
   HOP_USDC_ATOMIC,
   MEDITATION_USDC_ATOMIC,
+  TABOSHI_USDC_ATOMIC,
   USDC_ADDRESS,
 } from '@/lib/contracts';
 import {
@@ -65,6 +66,7 @@ import type {
   HopReceipt,
   HopUser,
   MeditationReceipt,
+  TaboshiReceipt,
   LeaderboardKind,
   LeaderboardResponse,
 } from '@/lib/types';
@@ -151,6 +153,9 @@ const PENDING_HOP_STORAGE_KEY =
 
 const PENDING_MEDITATION_STORAGE_KEY =
   'toby_hop_pending_meditation_verification';
+
+const PENDING_TABOSHI_STORAGE_KEY =
+  'toby_hop_pending_taboshi_verification';
 
 const FARCASTER_CONTEXT_RETRY_DELAYS_MS = [
   0,
@@ -1016,6 +1021,34 @@ function clearPendingMeditation(): void {
   }
 }
 
+function readPendingTaboshi(): PendingHopRecord | null {
+  try {
+    const raw = window.localStorage.getItem(PENDING_TABOSHI_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingHopRecord>;
+    if (!parsed.txHash || !parsed.walletAddress) return null;
+    return { txHash: parsed.txHash as Hex, walletAddress: parsed.walletAddress as Address, createdAt: Number(parsed.createdAt) || Date.now() };
+  } catch {
+    return null;
+  }
+}
+
+function storePendingTaboshi(txHash: Hex, walletAddress: Address): void {
+  try {
+    window.localStorage.setItem(PENDING_TABOSHI_STORAGE_KEY, JSON.stringify({ txHash, walletAddress, createdAt: Date.now() } satisfies PendingHopRecord));
+  } catch {
+    // Best effort.
+  }
+}
+
+function clearPendingTaboshi(): void {
+  try {
+    window.localStorage.removeItem(PENDING_TABOSHI_STORAGE_KEY);
+  } catch {
+    // Best effort.
+  }
+}
+
 async function getSafeMiniAppContext():
 Promise<MiniAppContextResult> {
   let latestResult:
@@ -1467,8 +1500,14 @@ export function TobyHopApp() {
   const [meditationReceipt, setMeditationReceipt] =
     useState<MeditationReceipt | null>(null);
 
+  const [taboshiReceipt, setTaboshiReceipt] =
+    useState<TaboshiReceipt | null>(null);
+
+  const [showFallingLeaves, setShowFallingLeaves] =
+    useState(false);
+
   const [activeAction, setActiveAction] =
-    useState<'hop' | 'meditation' | null>(null);
+    useState<'hop' | 'meditation' | 'taboshi' | null>(null);
 
   const [
     notice,
@@ -4361,6 +4400,126 @@ export function TobyHopApp() {
     }
   }
 
+  async function getTaboshiQuoteWithRetry(wallet: Address): Promise<QuoteResponse> {
+    let lastError: unknown;
+    for (const delay of QUOTE_RETRY_DELAYS_MS) {
+      if (delay > 0) await sleep(delay);
+      try {
+        const response = await fetch(`/api/taboshi/quote?wallet=${encodeURIComponent(wallet)}`, { credentials: 'include' });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Quote failed');
+        }
+        return await response.json() as QuoteResponse;
+      } catch (cause) {
+        lastError = cause;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Unable to get leaf quote.');
+  }
+
+  async function verifyTaboshiWithRetry(txHash: Hex, wallet: Address): Promise<TaboshiReceipt> {
+    let lastError: unknown;
+    for (const delay of VERIFY_RETRY_DELAYS_MS) {
+      if (delay > 0) await sleep(delay);
+      try {
+        const response = await fetch('/api/taboshi/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ txHash, walletAddress: wallet }),
+        });
+        if (response.ok) return await response.json() as TaboshiReceipt;
+        const text = await response.text();
+        throw new Error(text || 'Verification failed');
+      } catch (cause) {
+        lastError = cause;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Unable to verify leaf swap.');
+  }
+
+  const applyCompletedTaboshi = useCallback(
+    async (completed: TaboshiReceipt) => {
+      clearPendingTaboshi();
+      setTaboshiReceipt(completed);
+      setUser((previous) => ({
+        ...previous,
+        total_taboshi_swaps: completed.totalTaboshiSwaps,
+        total_taboshi_atomic: completed.totalTaboshiAtomic,
+        big_pond_energy: completed.totalEnergy,
+      }));
+      setNotice({ kind: 'success', message: `Leaf collected. +${completed.energyAwarded} Big Pond Energy.` });
+      try { await loadLeaderboard(leaderKind, leaderPage); } catch { /* optional */ }
+    },
+    [leaderKind, leaderPage, loadLeaderboard],
+  );
+
+  async function performTaboshi() {
+    if (hopInProgressRef.current || busy) return;
+    hopInProgressRef.current = true;
+    setActiveAction('taboshi');
+    setNotice(null);
+    setTaboshiReceipt(null);
+    playPondSound('rustle', soundEnabled);
+    await provideTapFeedback();
+
+    try {
+      const wallet = await getConnectedWallet();
+      await ensureBaseChain();
+
+      if (isFarcasterMiniApp) {
+        const sessionReady = await ensureFarcasterHopSession(wallet);
+        if (!sessionReady) throw new Error('Farcaster authentication did not link the connected wallet.');
+      } else if (!authenticated || authMethod !== 'siwe' || !walletMatchesSession) {
+        const signedIn = await signInWithWallet(wallet);
+        if (!signedIn) return;
+        if (!addressesMatch(wallet, signedIn)) throw new Error('The connected wallet does not match the signed-in wallet.');
+      }
+
+      const pending = readPendingTaboshi();
+      if (pending && addressesMatch(pending.walletAddress, wallet)) {
+        setHopState('verifying');
+        const completed = await verifyTaboshiWithRetry(pending.txHash, pending.walletAddress);
+        await applyCompletedTaboshi(completed);
+        return;
+      }
+
+      setHopState('quoting');
+      const quote = await getTaboshiQuoteWithRetry(wallet);
+      if (!isAddress(quote.allowanceTarget) || !isAddress(quote.transaction.to) || !quote.transaction.data?.startsWith('0x')) {
+        throw new Error('The leaf quote returned invalid transaction data.');
+      }
+
+      await ensureUsdcAllowance(wallet, getAddress(quote.allowanceTarget), TABOSHI_USDC_ATOMIC);
+      setHopState('swapping');
+
+      const transactionHash = await sendTransactionAsync({
+        to: getAddress(quote.transaction.to),
+        data: quote.transaction.data,
+        value: BigInt(quote.transaction.value ?? '0'),
+        gas: quote.transaction.gas ? BigInt(quote.transaction.gas) : undefined,
+        chainId: base.id,
+      });
+
+      if (!publicClient) throw new Error('The Base network client is unavailable.');
+      setHopState('confirming');
+      const result = await publicClient.waitForTransactionReceipt({ hash: transactionHash, confirmations: 1, timeout: TRANSACTION_TIMEOUT_MS });
+      if (result.status !== 'success') throw new Error('The leaf transaction failed.');
+
+      storePendingTaboshi(transactionHash, wallet);
+      setHopState('verifying');
+      const completed = await verifyTaboshiWithRetry(transactionHash, wallet);
+      await applyCompletedTaboshi(completed);
+    } catch (cause) {
+      setErrorNotice(cause, hostMode);
+    } finally {
+      hopInProgressRef.current = false;
+      setHopState('idle');
+      setActiveAction(null);
+    }
+  }
+
   function shareToX(text: string) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
     const url = `https://x.com/intent/post?text=${encodeURIComponent(`${text}\n\n${appUrl}`)}`;
@@ -4417,6 +4576,11 @@ export function TobyHopApp() {
   async function shareMeditation() {
     if (!meditationReceipt) return;
     await shareAction(meditationReceipt.castText, 'Your stillness message');
+  }
+
+  async function shareTaboshi() {
+    if (!taboshiReceipt) return;
+    await shareAction(taboshiReceipt.castText, 'Your leaf message');
   }
 
   const hopStatus:
@@ -5218,6 +5382,31 @@ export function TobyHopApp() {
               <span className="meditation-triangle-label">Stillness</span>
             </button>
 
+            {/* Green Taboshi leaf — unlimited 0.10 USDC → $TABOSHI, +10 BPE */}
+            <button
+              type="button"
+              className="taboshi-leaf"
+              disabled={busy}
+              onClick={() => void performTaboshi()}
+              aria-label="Collect a green leaf: swap 0.10 USDC for $TABOSHI and gain 10 Big Pond Energy"
+              title="Leaf of Yield — 0.10 USDC → $TABOSHI (+10 BPE)"
+            >
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <path
+                  d="M32 8c-8 12-18 20-18 32a18 18 0 0036 0c0-12-10-20-18-32z"
+                  fill="#2d8a3e"
+                  stroke="#1a5c28"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M32 12v40M24 28c4 2 8 2 12 0M22 36c5 3 10 3 15 0"
+                  stroke="#1a5c28"
+                  strokeWidth="1.2"
+                  fill="none"
+                />
+              </svg>
+            </button>
+
             <button
               type="button"
               className="pond-sound-toggle pond-sound-toggle-lower"
@@ -5672,6 +5861,57 @@ export function TobyHopApp() {
               <button type="button" className="secondary" onClick={() => setMeditationReceipt(null)}>BACK TO THE POND</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {taboshiReceipt && (
+        <div className="success success-taboshi" role="dialog" aria-modal="true" aria-label="Leaf collected">
+          <div className="success-card taboshi-success-card">
+            <div className="success-frog" aria-hidden="true">🍃</div>
+            <div className="success-eyebrow">LEAF COLLECTED</div>
+            <div className="energy">+10 BIG POND ENERGY</div>
+            <div className="success-summary">
+              <strong>{taboshiReceipt.taboshiDisplay} $TABOSHI</strong>
+              <span>{taboshiReceipt.totalEnergy.toLocaleString('en-US')} total Big Pond Energy</span>
+              <span>Leaves collected: {taboshiReceipt.totalTaboshiSwaps.toLocaleString('en-US')}</span>
+              <span>Total $TABOSHI received: {taboshiReceipt.totalTaboshiDisplay}</span>
+            </div>
+            <div className="success-actions">
+              <button type="button" className="primary" onClick={() => void shareTaboshi()}>
+                {canCast ? 'CAST LEAF' : 'SHARE LEAF'}
+              </button>
+              <button type="button" className="secondary" onClick={() => shareToX(taboshiReceipt.castText)}>POST TO X</button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setTaboshiReceipt(null);
+                  setShowFallingLeaves(true);
+                  setTimeout(() => setShowFallingLeaves(false), 4000);
+                }}
+              >
+                BACK TO THE POND
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFallingLeaves && (
+        <div className="falling-leaves-container" aria-hidden="true">
+          {Array.from({ length: 18 }).map((_, i) => (
+            <span
+              key={i}
+              className="falling-leaf"
+              style={{
+                left: `${(i * 5.5) % 100}%`,
+                animationDelay: `${(i % 6) * 0.25}s`,
+                fontSize: `${16 + (i % 5) * 3}px`,
+              }}
+            >
+              🍃
+            </span>
+          ))}
         </div>
       )}
     </main>
