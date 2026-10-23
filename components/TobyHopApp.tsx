@@ -5382,7 +5382,7 @@ export function TobyHopApp() {
               <span className="meditation-triangle-label">Stillness</span>
             </button>
 
-            {/* Green Taboshi leaf — unlimited 0.10 USDC → $TABOSHI, +10 BPE */}
+            {/* Green Taboshi leaf — left side of pond, clear of Stillness */}
             <button
               type="button"
               className="taboshi-leaf"
@@ -5392,17 +5392,45 @@ export function TobyHopApp() {
               title="Leaf of Yield — 0.10 USDC → $TABOSHI (+10 BPE)"
             >
               <svg viewBox="0 0 64 64" aria-hidden="true">
+                {/* Main leaf body */}
                 <path
-                  d="M32 8c-8 12-18 20-18 32a18 18 0 0036 0c0-12-10-20-18-32z"
-                  fill="#2d8a3e"
-                  stroke="#1a5c28"
-                  strokeWidth="1.5"
+                  d="M32 6
+                     C20 14, 10 28, 10 40
+                     C10 52, 20 58, 32 58
+                     C44 58, 54 52, 54 40
+                     C54 28, 44 14, 32 6 Z"
+                  fill="#3a9a4a"
+                  stroke="#1e5c2a"
+                  strokeWidth="1.4"
                 />
+                {/* Center vein */}
                 <path
-                  d="M32 12v40M24 28c4 2 8 2 12 0M22 36c5 3 10 3 15 0"
-                  stroke="#1a5c28"
-                  strokeWidth="1.2"
+                  d="M32 10 V52"
+                  stroke="#1e5c2a"
+                  strokeWidth="1.6"
                   fill="none"
+                  strokeLinecap="round"
+                />
+                {/* Side veins */}
+                <path
+                  d="M32 20 Q22 24 18 30
+                     M32 28 Q22 32 16 38
+                     M32 36 Q22 40 18 46
+                     M32 20 Q42 24 46 30
+                     M32 28 Q42 32 48 38
+                     M32 36 Q42 40 46 46"
+                  stroke="#1e5c2a"
+                  strokeWidth="1.1"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+                {/* Soft highlight */}
+                <path
+                  d="M28 18 Q24 28 26 38"
+                  stroke="rgba(255,255,255,0.35)"
+                  strokeWidth="2"
+                  fill="none"
+                  strokeLinecap="round"
                 />
               </svg>
             </button>
