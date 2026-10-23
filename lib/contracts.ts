@@ -23,6 +23,11 @@ export const MEDITATION_USDC_ATOMIC = BigInt(
   process.env.MEDITATION_USDC_ATOMIC ?? '50000',
 );
 
+export const PATIENCE_ADDRESS = getAddress(
+  process.env.NEXT_PUBLIC_PATIENCE_ADDRESS ??
+    '0x6D96f18F00B815B2109A3766E79F6A7aD7785624',
+);
+
 export const TABOSHI_USDC_ATOMIC = BigInt(
   process.env.TABOSHI_USDC_ATOMIC ?? '100000', // 0.10 USDC (6 decimals)
 );
