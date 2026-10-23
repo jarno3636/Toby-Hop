@@ -44,6 +44,8 @@ export const EMPTY_USER: HopUser = {
   today_meditated: false,
   total_meditations: 0,
   total_patience_atomic: '0',
+  total_taboshi_atomic: '0',
+  total_taboshi_swaps: 0,
   rank: null,
 };
 
