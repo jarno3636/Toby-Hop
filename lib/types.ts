@@ -24,6 +24,8 @@ export type HopUser = {
   today_meditated: boolean;
   total_meditations: number;
   total_patience_atomic: string;
+  total_taboshi_atomic: string;
+  total_taboshi_swaps: number;
   rank: number | null;
 };
 
@@ -178,6 +180,22 @@ export type MeditationReceipt = {
   totalMeditations: number;
   totalPatienceAtomic: string;
   totalPatienceDisplay: string;
+  castText: string;
+  txHash: `0x${string}`;
+  alreadyRecorded?: boolean;
+  accountAbstraction?: boolean | null;
+};
+
+export type TaboshiReceipt = {
+  taboshiId: string;
+  taboshiAtomic: string;
+  taboshiDisplay: string;
+  usdcAtomic: string;
+  energyAwarded: number;
+  totalEnergy: number;
+  totalTaboshiSwaps: number;
+  totalTaboshiAtomic: string;
+  totalTaboshiDisplay: string;
   castText: string;
   txHash: `0x${string}`;
   alreadyRecorded?: boolean;
