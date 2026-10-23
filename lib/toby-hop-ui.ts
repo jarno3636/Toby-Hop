@@ -80,6 +80,8 @@ export function normalizeUser(value?: StoredHopUser | null, farcasterUser?: Mini
     today_meditated: Boolean(value?.today_meditated),
     total_meditations: safeNumber(value?.total_meditations),
     total_patience_atomic: safeAtomicString(value?.total_patience_atomic),
+    total_taboshi_atomic: safeAtomicString(value?.total_taboshi_atomic),
+    total_taboshi_swaps: safeNumber(value?.total_taboshi_swaps),
     rank: value?.rank == null ? null : safeNumber(value.rank),
   };
 }
